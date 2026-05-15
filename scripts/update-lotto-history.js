@@ -1,17 +1,88 @@
 const fs = require('fs/promises');
 
-const LOTTLOG_HISTORY_URL = 'https://www.lottolog.kr/history';
-const LOTTO_API_BASE =
-  'https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo=';
-
+const HISTORY_URL = 'https://www.lottolog.kr/history.html';
 const OUTPUT_FILE = 'lotto-history.json';
 const RECENT_DRAW_COUNT = 120;
 
-async function fetchLottologLatestDrawNo() {
-  const response = await fetch(LOTTLOG_HISTORY_URL, {
+function cleanText(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&#x2F;/g, '/')
+    .replace(/&#47;/g, '/')
+    .replace(/[.,]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractDrawsFromText(text) {
+  const draws = [];
+
+  const n = '([1-9]|[1-3][0-9]|4[0-5])';
+
+  const rowRegex = new RegExp(
+    [
+      '\\\\b(\\\\d{1,4})\\\\s+',
+      n, '\\\\s+',
+      n, '\\\\s+',
+      n, '\\\\s+',
+      n, '\\\\s+',
+      n, '\\\\s+',
+      n, '\\\\s+',
+      '\\\\+\\\\s+',
+      n, '\\\\s+',
+      '(\\\\d+)\\\\s*명'
+    ].join(''),
+    'g'
+  );
+
+  let match;
+
+  while ((match = rowRegex.exec(text)) !== null) {
+    const drawNo = Number(match[1]);
+
+    const numbers = [
+      Number(match[2]),
+      Number(match[3]),
+      Number(match[4]),
+      Number(match[5]),
+      Number(match[6]),
+      Number(match[7]),
+    ].sort((a, b) => a - b);
+
+    const bonus = Number(match[8]);
+    const firstPrizeWinners = Number(match[9]);
+
+    if (!drawNo || numbers.length !== 6 || !bonus) continue;
+
+    draws.push({
+      drawNo,
+      date: '',
+      numbers,
+      bonus,
+      firstPrizeWinners,
+    });
+  }
+
+  const unique = new Map();
+
+  for (const draw of draws) {
+    unique.set(draw.drawNo, draw);
+  }
+
+  return [...unique.values()]
+    .sort((a, b) => b.drawNo - a.drawNo)
+    .slice(0, RECENT_DRAW_COUNT);
+}
+
+async function main() {
+  const response = await fetch(HISTORY_URL, {
     headers: {
       'user-agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+        'Mozilla/5.0 (compatible; lotto-analysis-bot/1.0; +https://github.com/)',
       accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     },
   });
@@ -21,107 +92,28 @@ async function fetchLottologLatestDrawNo() {
   }
 
   const html = await response.text();
-  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  const text = cleanText(html);
+  const draws = extractDrawsFromText(text);
 
-  const matches = [...text.matchAll(/(\d{1,4})\s*회/g)]
-    .map((match) => Number(match[1]))
-    .filter((num) => Number.isInteger(num) && num > 0);
+  console.log(`Fetched LOTTO.LOG HTML length: ${html.length}`);
+  console.log(`Extracted draws: ${draws.length}`);
 
-  if (matches.length === 0) {
-    throw new Error('LOTTO.LOG에서 최신 회차 번호를 찾지 못했습니다.');
-  }
-
-  return Math.max(...matches);
-}
-
-async function fetchDraw(drawNo) {
-  const url = `${LOTTO_API_BASE}${drawNo}`;
-
-  const response = await fetch(url, {
-    headers: {
-      'user-agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
-      accept: 'application/json, text/javascript, */*; q=0.01',
-      referer: 'https://www.dhlottery.co.kr/gameResult.do?method=byWin',
-      origin: 'https://www.dhlottery.co.kr',
-      'x-requested-with': 'XMLHttpRequest',
-    },
-  });
-
-  if (!response.ok) {
-    console.log(`Draw ${drawNo}: HTTP ${response.status}`);
-    return null;
-  }
-
-  const raw = await response.text();
-  const trimmed = raw.trim();
-
-  if (trimmed.startsWith('<')) {
-    console.log(`Draw ${drawNo}: received HTML instead of JSON`);
-    console.log(trimmed.slice(0, 200));
-    return null;
-  }
-
-  let data;
-
-  try {
-    data = JSON.parse(trimmed);
-  } catch (error) {
-    console.log(`Draw ${drawNo}: JSON parse failed`);
-    console.log(trimmed.slice(0, 200));
-    return null;
-  }
-
-  if (data.returnValue !== 'success') {
-    console.log(`Draw ${drawNo}: returnValue=${data.returnValue}`);
-    return null;
-  }
-
-  return {
-    drawNo: data.drwNo,
-    date: data.drwNoDate,
-    numbers: [
-      data.drwtNo1,
-      data.drwtNo2,
-      data.drwtNo3,
-      data.drwtNo4,
-      data.drwtNo5,
-      data.drwtNo6,
-    ].sort((a, b) => a - b),
-    bonus: data.bnusNo,
-  };
-}
-
-async function main() {
-  const latestDrawNo = await fetchLottologLatestDrawNo();
-  console.log(`Latest draw from LOTTO.LOG: ${latestDrawNo}`);
-
-  const draws = [];
-
-  for (let drawNo = latestDrawNo; drawNo > latestDrawNo - RECENT_DRAW_COUNT; drawNo -= 1) {
-    const draw = await fetchDraw(drawNo);
-
-    if (draw) {
-      draws.push(draw);
-      console.log(`Fetched draw ${drawNo}`);
-    } else {
-      console.log(`Skipped draw ${drawNo}`);
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 200));
+  if (draws[0]) {
+    console.log(`Latest extracted draw: ${draws[0].drawNo}`);
   }
 
   if (draws.length < 10) {
-    throw new Error(`회차별 당첨번호를 충분히 가져오지 못했습니다. 가져온 회차 수: ${draws.length}`);
+    console.log('Text preview:');
+    console.log(text.slice(0, 1500));
+
+    throw new Error(
+      `LOTTO.LOG에서 충분한 회차 데이터를 추출하지 못했습니다. 추출된 회차 수: ${draws.length}`
+    );
   }
 
   const output = {
     updatedAt: new Date().toISOString(),
-    source: {
-      latestDrawNo: LOTTLOG_HISTORY_URL,
-      drawNumbers:
-        'https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo={drawNo}',
-    },
+    source: HISTORY_URL,
     count: draws.length,
     latestDrawNo: draws[0].drawNo,
     draws,
