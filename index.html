@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>로또 당첨번호 분석</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-50 text-slate-800">
+  <div id="app" class="min-h-screen"></div>
+
+  <script>
+    const CONFIG = {
+      recentDrawCount: 100,
+      localJsonPath: './lotto-history.json'
+    };
+
+    const state = {
+      draws: [],
+      analysis: null,
+      recommendations: [],
+      error: null,
+      source: null,
+      updatedAt: null
+    };
+
+    async function loadDraws() {
+      const response = await fetch(CONFIG.localJsonPath, { cache: 'no-store' });
+
+      if (!response.ok) {
+        throw new Error('lotto-history.json을 불러오지 못했습니다. GitHub Actions가 먼저 실행되어야 합니다.');
+      }
+
+      const data = await response.json();
+
+      if (!Array.isArray(data.draws) || data.draws.length === 0) {
+        throw new Error('lotto-history.json에 분석 가능한 회차 데이터가 없습니다.');
+      }
+
+      return {
+        draws: data.draws
+          .slice()
+          .sort((a, b) => b.drawNo - a.drawNo)
+          .slice(0, CONFIG.recentDrawCount),
+        source: data.source || 'https://lottolog.kr/history',
+        updatedAt: data.updatedAt || null
+      };
+    }
+
+    function analyzeData(draws) {
+      const frequencies = {};
+      for (let i = 1; i <= 45; i += 1) frequencies[i] = 0;
+
+      draws.forEach((draw) => {
+        draw.numbers.forEach((num) => {
+          frequencies[num] += 1;
+        });
+      });
+
+      const sortedFrequencies = Object.entries(frequencies)
+        .map(([num, count]) => ({ num: Number(num), count }))
+        .sort((a, b) => b.count - a.count || a.num - b.num);
+
+      return {
+        hot: sortedFrequencies.slice(0, 15),
+        mid: sortedFrequencies.slice(15, 30),
+        cold: sortedFrequencies.slice(30, 45),
+        allFrequencies: frequencies
+      };
+    }
+
+    function pickRandomly(sourceArray, count) {
+      const selected = new Set();
+      const pool = [...sourceArray];
+
+      while (selected.size < count && pool.length > 0) {
+        const randomIndex = Math.floor(Math.random() * pool.length);
+        selected.add(pool[randomIndex].num);
+        pool.splice(randomIndex, 1);
+      }
+
+      return Array.from(selected);
+    }
+
+    function generateRecommendations(analysis) {
+      const sets = [];
+
+      for (let i = 0; i < 10; i += 1) {
+        const selectedSet = new Set([
+          ...pickRandomly(analysis.hot, 2),
+          ...pickRandomly(analysis.mid, 2),
+          ...pickRandomly(analysis.cold, 2)
+        ]);
+
+        const result = Array.from(selectedSet).sort((a, b) => a - b);
+        if (result.length === 6) sets.push(result);
+      }
+
+      return sets;
+    }
+
+    function getBallClass(num) {
+      if (num <= 10) return 'bg-yellow-400 text-yellow-950 border-yellow-500';
+      if (num <= 20) return 'bg-blue-400 text-blue-950 border-blue-500';
+      if (num <= 30) return 'bg-red-400 text-red-950 border-red-500';
+      if (num <= 40) return 'bg-slate-400 text-slate-950 border-slate-500';
+      return 'bg-green-400 text-green-950 border-green-500';
+    }
+
+    function formatUpdatedAt(value) {
+      if (!value) return '확인 불가';
+
+      try {
+        const date = new Date(value);
+        return new Intl.DateTimeFormat('ko-KR', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        }).format(date);
+      } catch (_) {
+        return value;
+      }
+    }
+
+    function renderLoading() {
+      document.getElementById('app').innerHTML = `
+        <div class="flex min-h-screen flex-col items-center justify-center bg-slate-50 p-6 text-center text-slate-700">
+          <div class="mb-4 h-12 w-12 animate-spin rounded-full border-4 border-indigo-100 border-t-indigo-600"></div>
+          <p class="text-lg font-medium">지난 회차 당첨번호를 불러오는 중입니다...</p>
+          <p class="mt-2 text-sm text-slate-500">GitHub Actions가 생성한 lotto-history.json을 읽고 있습니다.</p>
+        </div>
+      `;
+    }
+
+    function renderError(message) {
+      document.getElementById('app').innerHTML = `
+        <div class="flex min-h-screen flex-col items-center justify-center bg-slate-50 p-6 text-center text-slate-700">
+          <div class="mb-4 text-5xl">⚠</div>
+          <h1 class="mb-2 text-xl font-bold text-slate-900">데이터 로딩 실패</h1>
+          <p class="mb-6 max-w-xl text-sm leading-relaxed text-slate-500">${message}</p>
+
+          <div class="max-w-xl rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left text-sm leading-relaxed text-amber-900">
+            저장소에 <code class="rounded bg-amber-100 px-1">lotto-history.json</code>이 없으면 이 화면은 데이터를 표시할 수 없습니다.
+            GitHub Actions의 <strong>Update Lotto History</strong> 워크플로우를 한 번 수동 실행한 뒤 다시 열어주세요.
+          </div>
+
+          <button id="retryButton" class="mt-6 rounded-xl bg-indigo-600 px-5 py-2.5 font-medium text-white hover:bg-indigo-700">다시 시도</button>
+        </div>
+      `;
+
+      document.getElementById('retryButton').addEventListener('click', init);
+    }
+
+    function renderNumberTags(items, color) {
+      const colorMap = {
+        red: 'border-red-100 bg-red-50 text-red-700',
+        green: 'border-green-100 bg-green-50 text-green-700',
+        blue: 'border-blue-100 bg-blue-50 text-blue-700'
+      };
+
+      return items.map((item) => `
+        <span class="rounded-md border ${colorMap[color]} px-2 py-1 text-xs">
+          ${item.num} (${item.count}회)
+        </span>
+      `).join('');
+    }
+
+    function renderRecentDraws(draws) {
+      return draws.slice(0, 5).map((draw) => `
+        <div class="text-sm text-slate-600">
+          <div class="font-semibold text-slate-800">${draw.drawNo}회${draw.date ? ` · ${draw.date}` : ''}</div>
+          <div class="mt-1">${draw.numbers.join(', ')}${draw.bonus ? ` + 보너스 ${draw.bonus}` : ''}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderRecommendations(sets) {
+      return sets.map((set, index) => `
+        <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 transition-shadow hover:shadow-md">
+          <div class="w-8 text-center font-bold text-slate-400">#${index + 1}</div>
+          <div class="flex flex-1 justify-between gap-2">
+            ${set.map((num) => `
+              <div class="flex h-10 w-10 items-center justify-center rounded-full border font-bold shadow-sm ${getBallClass(num)}">
+                ${num}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function renderApp() {
+      state.analysis = analyzeData(state.draws);
+      state.recommendations = generateRecommendations(state.analysis);
+
+      const latestDraw = state.draws[0];
+      const oldestDraw = state.draws[state.draws.length - 1];
+      const totalNumbers = state.draws.length * 6;
+      const expectedAverage = (totalNumbers / 45).toFixed(1);
+      const updatedAtText = formatUpdatedAt(state.updatedAt);
+
+      document.getElementById('app').innerHTML = `
+        <div class="min-h-screen bg-slate-50 p-4 font-sans text-slate-800 md:p-8">
+          <div class="mx-auto max-w-5xl space-y-8">
+            <header class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div class="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+                <div>
+                  <h1 class="flex items-center gap-2 text-2xl font-bold text-slate-900 md:text-3xl">
+                    <span class="text-indigo-600">▦</span>
+                    실제 당첨번호 기반 로또 분석
+                  </h1>
+                  <p class="mt-2 text-slate-500">
+                    최근 ${state.draws.length}회차 당첨번호를 자동으로 불러와 Hot/Mid/Cold 번호를 분석합니다.
+                  </p>
+                  <p class="mt-1 text-xs text-slate-400">데이터 출처: ${state.source}</p>
+                  <p class="mt-1 text-xs text-slate-400">데이터 업데이트: ${updatedAtText}</p>
+                </div>
+
+                <button
+                  id="refreshButton"
+                  class="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 font-medium text-white transition-colors hover:bg-indigo-700"
+                >
+                  ↻ 추천 다시 생성
+                </button>
+              </div>
+
+              <div class="mt-6 flex gap-3 rounded-r-lg border-l-4 border-amber-500 bg-amber-50 p-4 text-sm text-amber-800">
+                <div class="flex-shrink-0">⚠</div>
+                <div>
+                  <strong>안내:</strong> 이 시스템은 지난 당첨번호의 출현 빈도를 분석하지만, 로또 추첨은 독립 시행이므로 과거 빈도가 다음 회차 당첨 확률을 보장하지 않습니다. 추천 번호는 참고용입니다.
+                </div>
+              </div>
+            </header>
+
+            <div class="grid grid-cols-1 gap-8 lg:grid-cols-3">
+              <aside class="space-y-6 lg:col-span-1">
+                <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h2 class="mb-4 flex items-center gap-2 text-lg font-bold text-slate-900">
+                    <span class="text-indigo-500">ⓘ</span>
+                    분석 기준
+                  </h2>
+
+                  <ul class="space-y-3 text-sm leading-relaxed text-slate-600">
+                    <li>• <strong>분석 회차:</strong> ${oldestDraw.drawNo}회 ~ ${latestDraw.drawNo}회</li>
+                    <li>• <strong>분석 대상:</strong> 최근 ${state.draws.length}회차 당첨번호</li>
+                    <li>• <strong>총 분석 번호 수:</strong> ${totalNumbers}개</li>
+                    <li>• <strong>평균 출현 기대치:</strong> 약 ${expectedAverage}회</li>
+                    <li>• <strong class="text-red-600">Hot:</strong> 출현 빈도 상위 15개</li>
+                    <li>• <strong class="text-green-600">Mid:</strong> 출현 빈도 중위 15개</li>
+                    <li>• <strong class="text-blue-600">Cold:</strong> 출현 빈도 하위 15개</li>
+                    <li class="border-t border-slate-100 pt-2">
+                      <strong>추천 방식:</strong> Hot 2개, Mid 2개, Cold 2개를 조합합니다.
+                    </li>
+                  </ul>
+                </section>
+
+                <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h2 class="mb-4 text-lg font-bold text-slate-900">번호 분류 결과</h2>
+
+                  <div class="space-y-4">
+                    <div>
+                      <h3 class="mb-2 text-sm font-semibold text-red-600">🔥 Hot</h3>
+                      <div class="flex flex-wrap gap-1.5">
+                        ${renderNumberTags(state.analysis.hot, 'red')}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 class="mb-2 text-sm font-semibold text-green-600">🌿 Mid</h3>
+                      <div class="flex flex-wrap gap-1.5">
+                        ${renderNumberTags(state.analysis.mid, 'green')}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 class="mb-2 text-sm font-semibold text-blue-600">❄️ Cold</h3>
+                      <div class="flex flex-wrap gap-1.5">
+                        ${renderNumberTags(state.analysis.cold, 'blue')}
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h2 class="mb-4 text-lg font-bold text-slate-900">최근 당첨번호</h2>
+                  <div class="space-y-3">
+                    ${renderRecentDraws(state.draws)}
+                  </div>
+                </section>
+              </aside>
+
+              <main class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
+                <h2 class="mb-6 border-b border-slate-100 pb-4 text-xl font-bold text-slate-900">
+                  분석 기반 추천 10세트
+                </h2>
+
+                <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  ${renderRecommendations(state.recommendations)}
+                </div>
+
+                <p class="mt-6 text-xs leading-relaxed text-slate-400">
+                  과거 출현 빈도 분포를 참고한 조합 생성 결과입니다. 당첨 가능성을 보장하지 않습니다.
+                </p>
+              </main>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('refreshButton').addEventListener('click', renderApp);
+    }
+
+    async function init() {
+      renderLoading();
+
+      try {
+        const result = await loadDraws();
+        state.draws = result.draws;
+        state.source = result.source;
+        state.updatedAt = result.updatedAt;
+        state.error = null;
+        renderApp();
+      } catch (error) {
+        state.error = error.message || '알 수 없는 오류가 발생했습니다.';
+        renderError(state.error);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
