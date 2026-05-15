@@ -1,0 +1,31 @@
+name: Update Lotto History
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 13 * * 6'
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Update lotto history JSON from LOTTO.LOG
+        run: node scripts/update-lotto-history.js
+
+      - name: Commit updated lotto history
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: Update lotto history from LOTTO.LOG
+          file_pattern: lotto-history.json
