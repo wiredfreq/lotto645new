@@ -21,8 +21,19 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Check files
+        run: |
+          pwd
+          ls -la
+          ls -la scripts
+
       - name: Update lotto history JSON from LOTTO.LOG
         run: node scripts/update-lotto-history.js
+
+      - name: Check generated file
+        run: |
+          ls -la
+          cat lotto-history.json | head -40
 
       - name: Commit updated lotto history
         uses: stefanzweifel/git-auto-commit-action@v5
