@@ -1,89 +1,17 @@
 const fs = require('fs/promises');
 
-const HISTORY_URL = 'https://www.lottolog.kr/history';
+const LOTTLOG_HISTORY_URL = 'https://www.lottolog.kr/history';
+const LOTTO_API_BASE =
+  'https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo=';
+
 const OUTPUT_FILE = 'lotto-history.json';
 const RECENT_DRAW_COUNT = 120;
 
-function cleanText(html) {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&#x2F;/g, '/')
-    .replace(/&#47;/g, '/')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function extractDrawsFromText(text) {
-  const draws = [];
-
-  /*
-    LOTTO.LOG 페이지 텍스트에서 이런 패턴을 찾습니다.
-    예: 1223회 2026-05-09 6 14 20 23 31 37 9 ...
-    날짜가 없더라도 회차 뒤의 1~45 숫자 6~7개를 회차 번호로 묶습니다.
-  */
-  const drawBlocks = text.split(/(?=\b\d{1,4}\s*회\b)/g);
-
-  for (const block of drawBlocks) {
-    const drawNoMatch = block.match(/\b(\d{1,4})\s*회\b/);
-    if (!drawNoMatch) continue;
-
-    const drawNo = Number(drawNoMatch[1]);
-
-    if (!Number.isInteger(drawNo) || drawNo < 1) continue;
-
-    // “1회 ~ 1223회 · 전체 데이터” 같은 소개 문구 제외
-    if (/전체\s*데이터|검색|이전|다음|역대|내역|가이드/.test(block)) {
-      continue;
-    }
-
-    const dateMatch = block.match(/(20\d{2}[./-]\d{1,2}[./-]\d{1,2})/);
-    const date = dateMatch
-      ? dateMatch[1].replaceAll('.', '-').replaceAll('/', '-')
-      : '';
-
-    const afterDrawNo = block.slice(drawNoMatch.index + drawNoMatch[0].length);
-
-    const numbers = [...afterDrawNo.matchAll(/\b([1-9]|[1-3][0-9]|4[0-5])\b/g)]
-      .map((match) => Number(match[1]));
-
-    const uniqueNumbers = [];
-
-    for (const num of numbers) {
-      if (!uniqueNumbers.includes(num)) {
-        uniqueNumbers.push(num);
-      }
-    }
-
-    if (uniqueNumbers.length < 6) continue;
-
-    draws.push({
-      drawNo,
-      date,
-      numbers: uniqueNumbers.slice(0, 6).sort((a, b) => a - b),
-      bonus: uniqueNumbers[6] || null,
-    });
-  }
-
-  const unique = new Map();
-
-  for (const draw of draws) {
-    unique.set(draw.drawNo, draw);
-  }
-
-  return [...unique.values()]
-    .sort((a, b) => b.drawNo - a.drawNo)
-    .slice(0, RECENT_DRAW_COUNT);
-}
-
-async function main() {
-  const response = await fetch(HISTORY_URL, {
+async function fetchLottologLatestDrawNo() {
+  const response = await fetch(LOTTLOG_HISTORY_URL, {
     headers: {
       'user-agent':
-        'Mozilla/5.0 (compatible; lotto-analysis-bot/1.0; +https://github.com/)',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
       accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     },
   });
@@ -93,28 +21,107 @@ async function main() {
   }
 
   const html = await response.text();
-  const text = cleanText(html);
+  const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
-  console.log(`Fetched LOTTO.LOG HTML length: ${html.length}`);
-  console.log(`Cleaned text length: ${text.length}`);
-  console.log(`Text preview: ${text.slice(0, 500)}`);
+  const matches = [...text.matchAll(/(\d{1,4})\s*회/g)]
+    .map((match) => Number(match[1]))
+    .filter((num) => Number.isInteger(num) && num > 0);
 
-  const draws = extractDrawsFromText(text);
+  if (matches.length === 0) {
+    throw new Error('LOTTO.LOG에서 최신 회차 번호를 찾지 못했습니다.');
+  }
 
-  console.log(`Extracted draws: ${draws.length}`);
-  if (draws[0]) {
-    console.log(`Latest extracted draw: ${draws[0].drawNo}`);
+  return Math.max(...matches);
+}
+
+async function fetchDraw(drawNo) {
+  const url = `${LOTTO_API_BASE}${drawNo}`;
+
+  const response = await fetch(url, {
+    headers: {
+      'user-agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+      accept: 'application/json, text/javascript, */*; q=0.01',
+      referer: 'https://www.dhlottery.co.kr/gameResult.do?method=byWin',
+      origin: 'https://www.dhlottery.co.kr',
+      'x-requested-with': 'XMLHttpRequest',
+    },
+  });
+
+  if (!response.ok) {
+    console.log(`Draw ${drawNo}: HTTP ${response.status}`);
+    return null;
+  }
+
+  const raw = await response.text();
+  const trimmed = raw.trim();
+
+  if (trimmed.startsWith('<')) {
+    console.log(`Draw ${drawNo}: received HTML instead of JSON`);
+    console.log(trimmed.slice(0, 200));
+    return null;
+  }
+
+  let data;
+
+  try {
+    data = JSON.parse(trimmed);
+  } catch (error) {
+    console.log(`Draw ${drawNo}: JSON parse failed`);
+    console.log(trimmed.slice(0, 200));
+    return null;
+  }
+
+  if (data.returnValue !== 'success') {
+    console.log(`Draw ${drawNo}: returnValue=${data.returnValue}`);
+    return null;
+  }
+
+  return {
+    drawNo: data.drwNo,
+    date: data.drwNoDate,
+    numbers: [
+      data.drwtNo1,
+      data.drwtNo2,
+      data.drwtNo3,
+      data.drwtNo4,
+      data.drwtNo5,
+      data.drwtNo6,
+    ].sort((a, b) => a - b),
+    bonus: data.bnusNo,
+  };
+}
+
+async function main() {
+  const latestDrawNo = await fetchLottologLatestDrawNo();
+  console.log(`Latest draw from LOTTO.LOG: ${latestDrawNo}`);
+
+  const draws = [];
+
+  for (let drawNo = latestDrawNo; drawNo > latestDrawNo - RECENT_DRAW_COUNT; drawNo -= 1) {
+    const draw = await fetchDraw(drawNo);
+
+    if (draw) {
+      draws.push(draw);
+      console.log(`Fetched draw ${drawNo}`);
+    } else {
+      console.log(`Skipped draw ${drawNo}`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
   if (draws.length < 10) {
-    throw new Error(
-      `LOTTO.LOG에서 충분한 회차 데이터를 추출하지 못했습니다. 추출된 회차 수: ${draws.length}`
-    );
+    throw new Error(`회차별 당첨번호를 충분히 가져오지 못했습니다. 가져온 회차 수: ${draws.length}`);
   }
 
   const output = {
     updatedAt: new Date().toISOString(),
-    source: HISTORY_URL,
+    source: {
+      latestDrawNo: LOTTLOG_HISTORY_URL,
+      drawNumbers:
+        'https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo={drawNo}',
+    },
     count: draws.length,
     latestDrawNo: draws[0].drawNo,
     draws,
