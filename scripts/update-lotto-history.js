@@ -1,119 +1,85 @@
 const fs = require('fs/promises');
 
-const HISTORY_URL = 'https://www.lottolog.kr/history.html';
+const DATA_URL = 'https://smok95.github.io/lotto/results/all.json';
 const OUTPUT_FILE = 'lotto-history.json';
 const RECENT_DRAW_COUNT = 120;
 
-function cleanText(html) {
-  return html
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&#x2F;/g, '/')
-    .replace(/&#47;/g, '/')
-    .replace(/[.,]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+function normalizeDraw(item) {
+  if (!item) return null;
 
-function extractDrawsFromText(text) {
-  const draws = [];
+  const drawNo = Number(item.draw_no || item.drawNo || item.no);
+  const numbers = item.numbers || item.win_numbers || item.drwtNos;
+  const bonus = Number(item.bonus_no || item.bonusNo || item.bonus);
 
-  const n = '([1-9]|[1-3][0-9]|4[0-5])';
-
-  const rowRegex = new RegExp(
-    [
-      '\\\\b(\\\\d{1,4})\\\\s+',
-      n, '\\\\s+',
-      n, '\\\\s+',
-      n, '\\\\s+',
-      n, '\\\\s+',
-      n, '\\\\s+',
-      n, '\\\\s+',
-      '\\\\+\\\\s+',
-      n, '\\\\s+',
-      '(\\\\d+)\\\\s*명'
-    ].join(''),
-    'g'
-  );
-
-  let match;
-
-  while ((match = rowRegex.exec(text)) !== null) {
-    const drawNo = Number(match[1]);
-
-    const numbers = [
-      Number(match[2]),
-      Number(match[3]),
-      Number(match[4]),
-      Number(match[5]),
-      Number(match[6]),
-      Number(match[7]),
-    ].sort((a, b) => a - b);
-
-    const bonus = Number(match[8]);
-    const firstPrizeWinners = Number(match[9]);
-
-    if (!drawNo || numbers.length !== 6 || !bonus) continue;
-
-    draws.push({
-      drawNo,
-      date: '',
-      numbers,
-      bonus,
-      firstPrizeWinners,
-    });
+  if (!drawNo || !Array.isArray(numbers) || numbers.length < 6) {
+    return null;
   }
 
-  const unique = new Map();
+  const pickedNumbers = numbers
+    .slice(0, 6)
+    .map(Number)
+    .filter((num) => num >= 1 && num <= 45)
+    .sort((a, b) => a - b);
 
-  for (const draw of draws) {
-    unique.set(draw.drawNo, draw);
+  if (pickedNumbers.length !== 6) {
+    return null;
   }
 
-  return [...unique.values()]
-    .sort((a, b) => b.drawNo - a.drawNo)
-    .slice(0, RECENT_DRAW_COUNT);
+  const firstDivision = Array.isArray(item.divisions) ? item.divisions[0] : null;
+
+  return {
+    drawNo,
+    date: item.date || '',
+    numbers: pickedNumbers,
+    bonus: bonus || null,
+    firstPrizeWinners: firstDivision?.winners || null,
+    firstPrizeAmount: firstDivision?.prize || null,
+  };
 }
 
 async function main() {
-  const response = await fetch(HISTORY_URL, {
+  const response = await fetch(DATA_URL, {
     headers: {
+      accept: 'application/json,text/plain,*/*',
       'user-agent':
         'Mozilla/5.0 (compatible; lotto-analysis-bot/1.0; +https://github.com/)',
-      accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     },
   });
 
   if (!response.ok) {
-    throw new Error(`LOTTO.LOG 요청 실패: ${response.status}`);
+    throw new Error(`로또 JSON 데이터 요청 실패: ${response.status}`);
   }
 
-  const html = await response.text();
-  const text = cleanText(html);
-  const draws = extractDrawsFromText(text);
+  const data = await response.json();
 
-  console.log(`Fetched LOTTO.LOG HTML length: ${html.length}`);
-  console.log(`Extracted draws: ${draws.length}`);
+  const rawDraws = Array.isArray(data)
+    ? data
+    : Array.isArray(data.results)
+      ? data.results
+      : Array.isArray(data.draws)
+        ? data.draws
+        : [];
+
+  const draws = rawDraws
+    .map(normalizeDraw)
+    .filter(Boolean)
+    .sort((a, b) => b.drawNo - a.drawNo)
+    .slice(0, RECENT_DRAW_COUNT);
+
+  console.log(`Loaded raw draws: ${rawDraws.length}`);
+  console.log(`Normalized draws: ${draws.length}`);
 
   if (draws[0]) {
-    console.log(`Latest extracted draw: ${draws[0].drawNo}`);
+    console.log(`Latest draw: ${draws[0].drawNo}`);
   }
 
   if (draws.length < 10) {
-    console.log('Text preview:');
-    console.log(text.slice(0, 1500));
-
-    throw new Error(
-      `LOTTO.LOG에서 충분한 회차 데이터를 추출하지 못했습니다. 추출된 회차 수: ${draws.length}`
-    );
+    throw new Error(`충분한 회차 데이터를 가져오지 못했습니다. 가져온 회차 수: ${draws.length}`);
   }
 
   const output = {
     updatedAt: new Date().toISOString(),
-    source: HISTORY_URL,
+    source: DATA_URL,
     count: draws.length,
     latestDrawNo: draws[0].drawNo,
     draws,
