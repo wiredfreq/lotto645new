@@ -24,22 +24,16 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Install dependencies
-        run: |
-          npm init -y
-          npm install playwright
-          npx playwright install chromium --with-deps
-
-      - name: Update lotto history JSON from LOTTO.LOG
+      - name: Update lotto history JSON
         run: node scripts/update-lotto-history.js
 
       - name: Check generated file
         run: |
           ls -la
-          head -40 lotto-history.json
+          head -80 lotto-history.json
 
       - name: Commit updated lotto history
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: Update lotto history from LOTTO.LOG
+          commit_message: Update lotto history
           file_pattern: lotto-history.json
