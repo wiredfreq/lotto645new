@@ -2,7 +2,7 @@ const fs = require('fs/promises');
 
 const DATA_URL = 'https://smok95.github.io/lotto/results/all.json';
 const OUTPUT_FILE = 'lotto-history.json';
-const RECENT_DRAW_COUNT = 9999;
+const RECENT_DRAW_COUNT = 1000;
 
 function normalizeDraw(item) {
   if (!item) return null;
