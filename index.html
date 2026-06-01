@@ -12,13 +12,17 @@
   <script>
     const CONFIG = {
       recentDrawCount: 100,
-      localJsonPath: './lotto-history.json'
+      localJsonPath: './lotto-history.json',
+      gameCount: 5,
+      numbersPerGame: 6
     };
 
     const state = {
       draws: [],
       analysis: null,
       recommendations: [],
+      revealedCount: 0,
+      isFinished: false,
       error: null,
       source: null,
       updatedAt: null
@@ -42,7 +46,7 @@
           .slice()
           .sort((a, b) => b.drawNo - a.drawNo)
           .slice(0, CONFIG.recentDrawCount),
-        source: data.source || 'https://lottolog.kr/history',
+        source: typeof data.source === 'string' ? data.source : JSON.stringify(data.source || ''),
         updatedAt: data.updatedAt || null
       };
     }
@@ -85,7 +89,7 @@
     function generateRecommendations(analysis) {
       const sets = [];
 
-      for (let i = 0; i < 10; i += 1) {
+      for (let i = 0; i < CONFIG.gameCount; i += 1) {
         const selectedSet = new Set([
           ...pickRandomly(analysis.hot, 2),
           ...pickRandomly(analysis.mid, 2),
@@ -93,10 +97,39 @@
         ]);
 
         const result = Array.from(selectedSet).sort((a, b) => a - b);
-        if (result.length === 6) sets.push(result);
+        if (result.length === CONFIG.numbersPerGame) sets.push(result);
       }
 
       return sets;
+    }
+
+    function resetDrawMachine() {
+      state.recommendations = generateRecommendations(state.analysis);
+      state.revealedCount = 0;
+      state.isFinished = false;
+      renderApp();
+    }
+
+    function revealNextNumber() {
+      const totalNumbers = state.recommendations.length * CONFIG.numbersPerGame;
+
+      if (state.revealedCount < totalNumbers) {
+        state.revealedCount += 1;
+        state.isFinished = state.revealedCount >= totalNumbers;
+        renderApp();
+      }
+    }
+
+    function revealNextGame() {
+      const totalNumbers = state.recommendations.length * CONFIG.numbersPerGame;
+      const nextGameEnd = Math.min(
+        Math.ceil((state.revealedCount + 1) / CONFIG.numbersPerGame) * CONFIG.numbersPerGame,
+        totalNumbers
+      );
+
+      state.revealedCount = nextGameEnd;
+      state.isFinished = state.revealedCount >= totalNumbers;
+      renderApp();
     }
 
     function getBallClass(num) {
@@ -176,24 +209,119 @@
       `).join('');
     }
 
-    function renderRecommendations(sets) {
-      return sets.map((set, index) => `
-        <div class="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 transition-shadow hover:shadow-md">
-          <div class="w-8 text-center font-bold text-slate-400">#${index + 1}</div>
-          <div class="flex flex-1 justify-between gap-2">
-            ${set.map((num) => `
-              <div class="flex h-10 w-10 items-center justify-center rounded-full border font-bold shadow-sm ${getBallClass(num)}">
-                ${num}
-              </div>
-            `).join('')}
+    function getRevealMeta() {
+      const totalNumbers = state.recommendations.length * CONFIG.numbersPerGame;
+      const currentGame = totalNumbers === 0
+        ? 0
+        : Math.min(Math.floor(state.revealedCount / CONFIG.numbersPerGame) + 1, CONFIG.gameCount);
+      const currentNumber = state.revealedCount % CONFIG.numbersPerGame;
+
+      return {
+        totalNumbers,
+        currentGame,
+        currentNumber,
+        progressPercent: totalNumbers ? Math.round((state.revealedCount / totalNumbers) * 100) : 0
+      };
+    }
+
+    function renderDrawMachine() {
+      const meta = getRevealMeta();
+
+      return `
+        <div class="rounded-2xl border border-indigo-100 bg-gradient-to-br from-white to-indigo-50 p-6 shadow-sm">
+          <div class="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+            <div>
+              <h2 class="text-xl font-bold text-slate-900">로또 추첨기</h2>
+              <p class="mt-1 text-sm text-slate-500">
+                버튼을 누를 때마다 번호가 하나씩 공개됩니다. 총 ${CONFIG.gameCount}게임만 추천합니다.
+              </p>
+            </div>
+            <div class="rounded-full bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm">
+              ${state.isFinished ? '추첨 완료' : `${state.revealedCount} / ${meta.totalNumbers}개 공개`}
+            </div>
+          </div>
+
+          <div class="mt-6 h-3 overflow-hidden rounded-full bg-indigo-100">
+            <div class="h-full rounded-full bg-indigo-600 transition-all duration-300" style="width: ${meta.progressPercent}%"></div>
+          </div>
+
+          <div class="mt-6 flex flex-col gap-3 sm:flex-row">
+            <button
+              id="revealNextButton"
+              class="flex-1 rounded-2xl bg-indigo-600 px-6 py-4 text-lg font-bold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              ${state.isFinished ? 'disabled' : ''}
+            >
+              ${state.revealedCount === 0 ? '추첨 시작' : state.isFinished ? '추첨 완료' : '번호 하나 뽑기'}
+            </button>
+
+            <button
+              id="revealGameButton"
+              class="rounded-2xl border border-indigo-200 bg-white px-5 py-4 font-semibold text-indigo-700 transition hover:bg-indigo-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-300"
+              ${state.isFinished ? 'disabled' : ''}
+            >
+              한 게임 한번에 보기
+            </button>
+
+            <button
+              id="resetButton"
+              class="rounded-2xl border border-slate-200 bg-white px-5 py-4 font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              새로 뽑기
+            </button>
           </div>
         </div>
-      `).join('');
+      `;
+    }
+
+    function renderRecommendationGames() {
+      return state.recommendations.map((set, gameIndex) => {
+        const gameStartIndex = gameIndex * CONFIG.numbersPerGame;
+        const visibleNumbers = Math.max(0, Math.min(CONFIG.numbersPerGame, state.revealedCount - gameStartIndex));
+        const isCurrentGame = visibleNumbers > 0 && visibleNumbers < CONFIG.numbersPerGame;
+        const isComplete = visibleNumbers === CONFIG.numbersPerGame;
+
+        return `
+          <div class="rounded-2xl border ${isCurrentGame ? 'border-indigo-300 bg-indigo-50' : 'border-slate-200 bg-slate-50'} p-5 transition-all">
+            <div class="mb-4 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="flex h-8 w-8 items-center justify-center rounded-full ${isComplete ? 'bg-indigo-600 text-white' : 'bg-white text-slate-500'} text-sm font-bold shadow-sm">
+                  ${gameIndex + 1}
+                </span>
+                <h3 class="font-bold text-slate-900">${gameIndex + 1}게임</h3>
+              </div>
+              <span class="text-xs font-semibold ${isComplete ? 'text-indigo-600' : 'text-slate-400'}">
+                ${isComplete ? '완성' : `${visibleNumbers} / ${CONFIG.numbersPerGame}`}
+              </span>
+            </div>
+
+            <div class="grid grid-cols-6 gap-2">
+              ${set.map((num, numberIndex) => {
+                const isVisible = numberIndex < visibleNumbers;
+                const isLatest = gameStartIndex + numberIndex + 1 === state.revealedCount;
+
+                if (!isVisible) {
+                  return `
+                    <div class="flex h-11 w-11 items-center justify-center rounded-full border border-dashed border-slate-300 bg-white text-lg font-bold text-slate-300 shadow-sm md:h-12 md:w-12">
+                      ?
+                    </div>
+                  `;
+                }
+
+                return `
+                  <div class="flex h-11 w-11 items-center justify-center rounded-full border text-lg font-bold shadow-sm md:h-12 md:w-12 ${getBallClass(num)} ${isLatest ? 'scale-110 animate-pulse ring-4 ring-indigo-200' : ''}">
+                    ${num}
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      }).join('');
     }
 
     function renderApp() {
-      state.analysis = analyzeData(state.draws);
-      state.recommendations = generateRecommendations(state.analysis);
+      if (!state.analysis) state.analysis = analyzeData(state.draws);
+      if (state.recommendations.length === 0) state.recommendations = generateRecommendations(state.analysis);
 
       const latestDraw = state.draws[0];
       const oldestDraw = state.draws[state.draws.length - 1];
@@ -209,21 +337,14 @@
                 <div>
                   <h1 class="flex items-center gap-2 text-2xl font-bold text-slate-900 md:text-3xl">
                     <span class="text-indigo-600">▦</span>
-                    실제 당첨번호 기반 로또 분석
+                    실제 당첨번호 기반 로또 추첨기
                   </h1>
                   <p class="mt-2 text-slate-500">
-                    최근 ${state.draws.length}회차 당첨번호를 자동으로 불러와 Hot/Mid/Cold 번호를 분석합니다.
+                    최근 ${state.draws.length}회차 당첨번호를 분석한 뒤, ${CONFIG.gameCount}게임을 추첨식으로 공개합니다.
                   </p>
                   <p class="mt-1 text-xs text-slate-400">데이터 출처: ${state.source}</p>
                   <p class="mt-1 text-xs text-slate-400">데이터 업데이트: ${updatedAtText}</p>
                 </div>
-
-                <button
-                  id="refreshButton"
-                  class="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 font-medium text-white transition-colors hover:bg-indigo-700"
-                >
-                  ↻ 추천 다시 생성
-                </button>
               </div>
 
               <div class="mt-6 flex gap-3 rounded-r-lg border-l-4 border-amber-500 bg-amber-50 p-4 text-sm text-amber-800">
@@ -233,6 +354,8 @@
                 </div>
               </div>
             </header>
+
+            ${renderDrawMachine()}
 
             <div class="grid grid-cols-1 gap-8 lg:grid-cols-3">
               <aside class="space-y-6 lg:col-span-1">
@@ -292,12 +415,13 @@
               </aside>
 
               <main class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
-                <h2 class="mb-6 border-b border-slate-100 pb-4 text-xl font-bold text-slate-900">
-                  분석 기반 추천 10세트
-                </h2>
+                <div class="mb-6 border-b border-slate-100 pb-4">
+                  <h2 class="text-xl font-bold text-slate-900">추천 번호 ${CONFIG.gameCount}게임</h2>
+                  <p class="mt-1 text-sm text-slate-500">버튼을 눌러 번호를 하나씩 공개하세요.</p>
+                </div>
 
-                <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  ${renderRecommendations(state.recommendations)}
+                <div class="grid grid-cols-1 gap-4">
+                  ${renderRecommendationGames()}
                 </div>
 
                 <p class="mt-6 text-xs leading-relaxed text-slate-400">
@@ -309,7 +433,9 @@
         </div>
       `;
 
-      document.getElementById('refreshButton').addEventListener('click', renderApp);
+      document.getElementById('revealNextButton').addEventListener('click', revealNextNumber);
+      document.getElementById('revealGameButton').addEventListener('click', revealNextGame);
+      document.getElementById('resetButton').addEventListener('click', resetDrawMachine);
     }
 
     async function init() {
@@ -320,6 +446,10 @@
         state.draws = result.draws;
         state.source = result.source;
         state.updatedAt = result.updatedAt;
+        state.analysis = analyzeData(state.draws);
+        state.recommendations = generateRecommendations(state.analysis);
+        state.revealedCount = 0;
+        state.isFinished = false;
         state.error = null;
         renderApp();
       } catch (error) {
