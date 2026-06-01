@@ -11,7 +11,7 @@
 
   <script>
     const CONFIG = {
-      recentDrawCount: 100,
+      recentDrawCount: null,
       localJsonPath: './lotto-history.json',
       gameCount: 5,
       numbersPerGame: 6
@@ -45,7 +45,7 @@
         draws: data.draws
           .slice()
           .sort((a, b) => b.drawNo - a.drawNo)
-          .slice(0, CONFIG.recentDrawCount),
+          .slice(0, CONFIG.recentDrawCount || undefined),
         source: typeof data.source === 'string' ? data.source : JSON.stringify(data.source || ''),
         updatedAt: data.updatedAt || null
       };
@@ -340,7 +340,7 @@
                     실제 당첨번호 기반 로또 추첨기
                   </h1>
                   <p class="mt-2 text-slate-500">
-                    최근 ${state.draws.length}회차 당첨번호를 분석한 뒤, ${CONFIG.gameCount}게임을 추첨식으로 공개합니다.
+                    전회차 당첨번호 ${state.draws.length}개 회차를 분석한 뒤, ${CONFIG.gameCount}게임을 추첨식으로 공개합니다.
                   </p>
                   <p class="mt-1 text-xs text-slate-400">데이터 출처: ${state.source}</p>
                   <p class="mt-1 text-xs text-slate-400">데이터 업데이트: ${updatedAtText}</p>
@@ -367,7 +367,7 @@
 
                   <ul class="space-y-3 text-sm leading-relaxed text-slate-600">
                     <li>• <strong>분석 회차:</strong> ${oldestDraw.drawNo}회 ~ ${latestDraw.drawNo}회</li>
-                    <li>• <strong>분석 대상:</strong> 최근 ${state.draws.length}회차 당첨번호</li>
+                    <li>• <strong>분석 대상:</strong> 전회차 당첨번호 (${state.draws.length}회차)</li>
                     <li>• <strong>총 분석 번호 수:</strong> ${totalNumbers}개</li>
                     <li>• <strong>평균 출현 기대치:</strong> 약 ${expectedAverage}회</li>
                     <li>• <strong class="text-red-600">Hot:</strong> 출현 빈도 상위 15개</li>
