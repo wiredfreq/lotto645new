@@ -1,9 +1,24 @@
 {
-  "updatedAt": "2026-07-25T14:43:37.606Z",
+  "updatedAt": "2026-08-01T14:42:23.640Z",
   "source": "https://smok95.github.io/lotto/results/all.json",
   "count": 1000,
-  "latestDrawNo": 1234,
+  "latestDrawNo": 1235,
   "draws": [
+    {
+      "drawNo": 1235,
+      "date": "2026-08-01T00:00:00Z",
+      "numbers": [
+        6,
+        7,
+        11,
+        15,
+        39,
+        43
+      ],
+      "bonus": 20,
+      "firstPrizeWinners": 9,
+      "firstPrizeAmount": 3090961625
+    },
     {
       "drawNo": 1234,
       "date": "2026-07-25T00:00:00Z",
@@ -14988,21 +15003,6 @@
       "bonus": 7,
       "firstPrizeWinners": 2,
       "firstPrizeAmount": 5030040150
-    },
-    {
-      "drawNo": 235,
-      "date": "2007-06-02T00:00:00Z",
-      "numbers": [
-        21,
-        22,
-        26,
-        27,
-        31,
-        37
-      ],
-      "bonus": 8,
-      "firstPrizeWinners": 3,
-      "firstPrizeAmount": 3433330100
     }
   ]
 }
