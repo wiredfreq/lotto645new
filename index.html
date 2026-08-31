@@ -14,19 +14,31 @@
       recentDrawCount: null,
       localJsonPath: './lotto-history.json',
       gameCount: 5,
-      numbersPerGame: 6
+      numbersPerGame: 6,
+      recentWindow: 100,
+      snapshotKey: 'lotto-recommendation-snapshot-v3'
     };
 
     const state = {
       draws: [],
       analysis: null,
       recommendations: [],
+      previousSnapshot: null,
       revealedCount: 0,
       isFinished: false,
       error: null,
       source: null,
       updatedAt: null
     };
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
 
     async function loadDraws() {
       const response = await fetch(CONFIG.localJsonPath, { cache: 'no-store' });
@@ -52,17 +64,23 @@
     }
 
     function analyzeData(draws) {
-      const frequencies = {};
+      const allFrequencies = {};
+      const recentFrequencies = {};
       const lastSeen = {};
 
       for (let i = 1; i <= 45; i += 1) {
-        frequencies[i] = 0;
+        allFrequencies[i] = 0;
+        recentFrequencies[i] = 0;
         lastSeen[i] = null;
       }
 
       draws.forEach((draw, index) => {
         draw.numbers.forEach((num) => {
-          frequencies[num] += 1;
+          allFrequencies[num] += 1;
+
+          if (index < CONFIG.recentWindow) {
+            recentFrequencies[num] += 1;
+          }
 
           if (lastSeen[num] === null) {
             lastSeen[num] = index;
@@ -70,21 +88,33 @@
         });
       });
 
-      const sortedFrequencies = Object.entries(frequencies)
-        .map(([num, count]) => ({
-          num: Number(num),
-          count,
-          lastSeenGap: lastSeen[num] === null ? draws.length : lastSeen[num]
-        }))
-        .sort((a, b) => b.count - a.count || a.num - b.num);
+      const all = Object.keys(allFrequencies).map((num) => {
+        const n = Number(num);
+
+        return {
+          num: n,
+          allCount: allFrequencies[n],
+          recentCount: recentFrequencies[n],
+          lastSeenGap: lastSeen[n] === null ? draws.length : lastSeen[n]
+        };
+      });
+
+      const sortedByAll = [...all].sort((a, b) => b.allCount - a.allCount || a.num - b.num);
+      const sortedByRecent = [...all].sort((a, b) => b.recentCount - a.recentCount || a.num - b.num);
+      const sortedByGap = [...all].sort((a, b) => b.lastSeenGap - a.lastSeenGap || a.num - b.num);
 
       return {
-        hot: sortedFrequencies.slice(0, 15),
-        mid: sortedFrequencies.slice(15, 30),
-        cold: sortedFrequencies.slice(30, 45),
-        all: sortedFrequencies,
-        allFrequencies: frequencies,
-        lastSeen
+        all,
+        hot: sortedByAll.slice(0, 15).map((item) => ({ num: item.num, count: item.allCount })),
+        mid: sortedByAll.slice(15, 30).map((item) => ({ num: item.num, count: item.allCount })),
+        cold: sortedByAll.slice(30, 45).map((item) => ({ num: item.num, count: item.allCount })),
+        recentHot: sortedByRecent.slice(0, 15),
+        recentCold: sortedByRecent.slice(30, 45),
+        longAbsent: sortedByGap.slice(0, 15),
+        allFrequencies,
+        recentFrequencies,
+        lastSeen,
+        latestDraw: draws[0]
       };
     }
 
@@ -108,15 +138,16 @@
     }
 
     function getSetStats(numbers) {
-      const sum = numbers.reduce((acc, num) => acc + num, 0);
-      const oddCount = numbers.filter((num) => num % 2 === 1).length;
-      const evenCount = numbers.length - oddCount;
-      const bands = new Set(numbers.map(getNumberBand)).size;
+      const sorted = [...numbers].sort((a, b) => a - b);
+      const sum = sorted.reduce((acc, num) => acc + num, 0);
+      const oddCount = sorted.filter((num) => num % 2 === 1).length;
+      const evenCount = sorted.length - oddCount;
+      const bands = new Set(sorted.map(getNumberBand)).size;
 
       let consecutivePairs = 0;
 
-      for (let i = 1; i < numbers.length; i += 1) {
-        if (numbers[i] - numbers[i - 1] === 1) {
+      for (let i = 1; i < sorted.length; i += 1) {
+        if (sorted[i] - sorted[i - 1] === 1) {
           consecutivePairs += 1;
         }
       }
@@ -130,175 +161,177 @@
       };
     }
 
-    function getSetScore(numbers, analysis, mode) {
-      const stats = getSetStats(numbers);
-      const frequencyMap = analysis.allFrequencies;
-
-      const frequencyScore = numbers.reduce((acc, num) => {
-        return acc + (frequencyMap[num] || 0);
-      }, 0);
-
-      const gapScore = numbers.reduce((acc, num) => {
-        return acc + Math.min(analysis.lastSeen[num] || 0, 20);
-      }, 0);
-
-      const sumPenalty = stats.sum < 95 || stats.sum > 190 ? 12 : 0;
-      const oddPenalty = stats.oddCount < 2 || stats.oddCount > 4 ? 10 : 0;
-      const bandBonus = stats.bands * 4;
-      const consecutivePenalty = stats.consecutivePairs > 1 ? 8 : 0;
-
-      if (mode === 'classic') {
-        return frequencyScore + bandBonus - sumPenalty - oddPenalty - consecutivePenalty;
-      }
-
-      if (mode === 'balanced') {
-        return frequencyScore * 0.8 + bandBonus * 1.2 - sumPenalty - oddPenalty - consecutivePenalty;
-      }
-
-      if (mode === 'spread') {
-        return frequencyScore * 0.5 + bandBonus * 3 - sumPenalty * 1.5 - oddPenalty * 1.5 - consecutivePenalty * 2;
-      }
-
-      if (mode === 'coldComeback') {
-        return frequencyScore * 0.35 + gapScore * 1.4 + bandBonus - sumPenalty - oddPenalty - consecutivePenalty;
-      }
-
-      if (mode === 'wild') {
-        return frequencyScore * 0.25 + gapScore * 0.8 + bandBonus * 1.5 - sumPenalty - oddPenalty - consecutivePenalty;
-      }
-
-      return frequencyScore + bandBonus - sumPenalty - oddPenalty - consecutivePenalty;
-    }
-
-    function createSetFromPools(pools) {
+    function pickWeighted(items, weightFn, count, blockedNumbers = new Set()) {
       const selected = new Set();
+      const pool = items.filter((item) => !blockedNumbers.has(item.num));
 
-      pools.forEach(({ source, count }) => {
-        const pool = shuffleArray(source);
-        let pickedCount = 0;
+      while (selected.size < count && pool.length > 0) {
+        const weighted = pool.map((item) => ({
+          item,
+          weight: Math.max(1, weightFn(item))
+        }));
 
-        for (const item of pool) {
-          if (pickedCount >= count) break;
+        const totalWeight = weighted.reduce((acc, row) => acc + row.weight, 0);
+        let cursor = Math.random() * totalWeight;
+        let pickedIndex = 0;
 
-          if (!selected.has(item.num)) {
-            selected.add(item.num);
-            pickedCount += 1;
+        for (let i = 0; i < weighted.length; i += 1) {
+          cursor -= weighted[i].weight;
+
+          if (cursor <= 0) {
+            pickedIndex = i;
+            break;
           }
         }
-      });
 
-      return Array.from(selected).sort((a, b) => a - b);
+        const picked = weighted[pickedIndex].item;
+        selected.add(picked.num);
+
+        const removeIndex = pool.findIndex((item) => item.num === picked.num);
+        if (removeIndex >= 0) pool.splice(removeIndex, 1);
+      }
+
+      return Array.from(selected);
     }
 
-    function fillToSix(numbers, analysis) {
+    function fillToSix(numbers, analysis, blockedNumbers = new Set()) {
       const selected = new Set(numbers);
       const pool = shuffleArray(analysis.all);
 
       for (const item of pool) {
         if (selected.size >= 6) break;
-        selected.add(item.num);
+        if (!blockedNumbers.has(item.num)) selected.add(item.num);
+      }
+
+      if (selected.size < 6) {
+        for (let i = 1; i <= 45; i += 1) {
+          if (selected.size >= 6) break;
+          selected.add(i);
+        }
       }
 
       return Array.from(selected).sort((a, b) => a - b);
     }
 
-    function createRandomCandidate(analysis, mode) {
-      const { hot, mid, cold, all } = analysis;
+    function createCandidate(analysis, mode) {
+      const latestNumbers = new Set(analysis.latestDraw?.numbers || []);
 
-      if (mode === 'classic') {
-        return fillToSix(
-          createSetFromPools([
-            { source: hot.slice(0, 10), count: 3 },
-            { source: mid.slice(0, 12), count: 2 },
-            { source: cold.slice(0, 12), count: 1 }
-          ]),
-          analysis
+      if (mode === 'analysis') {
+        const picked = pickWeighted(
+          analysis.all,
+          (item) => item.allCount * 2 + item.recentCount,
+          6
         );
+
+        return fillToSix(picked, analysis);
       }
 
-      if (mode === 'balanced') {
-        return fillToSix(
-          createSetFromPools([
-            { source: hot, count: 2 },
-            { source: mid, count: 2 },
-            { source: cold, count: 2 }
-          ]),
-          analysis
+      if (mode === 'recent') {
+        const picked = pickWeighted(
+          analysis.all,
+          (item) => item.recentCount * 3 + item.allCount * 0.4,
+          6
         );
+
+        return fillToSix(picked, analysis);
+      }
+
+      if (mode === 'avoidLast') {
+        const picked = pickWeighted(
+          analysis.all,
+          (item) => item.allCount + item.lastSeenGap * 1.2 + item.recentCount,
+          6,
+          latestNumbers
+        );
+
+        return fillToSix(picked, analysis, latestNumbers);
       }
 
       if (mode === 'spread') {
         const selected = new Set();
         const bands = [
-          all.filter((item) => item.num <= 10),
-          all.filter((item) => item.num >= 11 && item.num <= 20),
-          all.filter((item) => item.num >= 21 && item.num <= 30),
-          all.filter((item) => item.num >= 31 && item.num <= 40),
-          all.filter((item) => item.num >= 41 && item.num <= 45)
+          analysis.all.filter((item) => item.num <= 10),
+          analysis.all.filter((item) => item.num >= 11 && item.num <= 20),
+          analysis.all.filter((item) => item.num >= 21 && item.num <= 30),
+          analysis.all.filter((item) => item.num >= 31 && item.num <= 40),
+          analysis.all.filter((item) => item.num >= 41 && item.num <= 45)
         ];
 
         shuffleArray(bands).forEach((band) => {
-          const picked = shuffleArray(band)[0];
-          if (picked) selected.add(picked.num);
+          const picked = pickWeighted(
+            band,
+            (item) => item.allCount * 0.5 + item.recentCount + item.lastSeenGap * 0.4,
+            1
+          )[0];
+
+          if (picked) selected.add(picked);
         });
 
         return fillToSix(Array.from(selected), analysis);
       }
 
-      if (mode === 'coldComeback') {
-        const coldByGap = [...cold].sort((a, b) => b.lastSeenGap - a.lastSeenGap || a.num - b.num);
-
-        return fillToSix(
-          createSetFromPools([
-            { source: coldByGap, count: 3 },
-            { source: mid, count: 2 },
-            { source: hot, count: 1 }
-          ]),
-          analysis
-        );
+      if (mode === 'random') {
+        const allNumbers = Array.from({ length: 45 }, (_, index) => index + 1);
+        return shuffleArray(allNumbers).slice(0, 6).sort((a, b) => a - b);
       }
 
-      if (mode === 'wild') {
-        const notTooHot = [...mid, ...cold];
-        const selected = new Set();
-
-        shuffleArray(notTooHot).slice(0, 4).forEach((item) => selected.add(item.num));
-        shuffleArray(hot).slice(0, 1).forEach((item) => selected.add(item.num));
-        shuffleArray(all).slice(0, 1).forEach((item) => selected.add(item.num));
-
-        return fillToSix(Array.from(selected), analysis);
-      }
-
-      return fillToSix(
-        createSetFromPools([
-          { source: hot, count: 2 },
-          { source: mid, count: 2 },
-          { source: cold, count: 2 }
-        ]),
-        analysis
-      );
+      const fallback = shuffleArray(analysis.all).slice(0, 6).map((item) => item.num);
+      return fallback.sort((a, b) => a - b);
     }
 
-    function isTooSimilar(candidate, existingGames) {
-      return existingGames.some((game) => {
-        const existingNumbers = game.numbers;
-        const overlap = candidate.filter((num) => existingNumbers.includes(num)).length;
+    function getSetScore(numbers, analysis, mode, existingGames) {
+      const stats = getSetStats(numbers);
+      const latestNumbers = analysis.latestDraw?.numbers || [];
+
+      const allFrequencyScore = numbers.reduce((acc, num) => acc + (analysis.allFrequencies[num] || 0), 0);
+      const recentFrequencyScore = numbers.reduce((acc, num) => acc + (analysis.recentFrequencies[num] || 0), 0);
+      const gapScore = numbers.reduce((acc, num) => acc + Math.min(analysis.lastSeen[num] || 0, 30), 0);
+      const latestOverlap = numbers.filter((num) => latestNumbers.includes(num)).length;
+
+      const sumPenalty = stats.sum < 95 || stats.sum > 190 ? 18 : 0;
+      const oddPenalty = stats.oddCount < 2 || stats.oddCount > 4 ? 14 : 0;
+      const consecutivePenalty = stats.consecutivePairs > 1 ? 14 : 0;
+      const bandBonus = stats.bands * 5;
+
+      const similarityPenalty = existingGames.some((game) => {
+        const overlap = numbers.filter((num) => game.numbers.includes(num)).length;
         return overlap >= 3;
-      });
+      }) ? 60 : 0;
+
+      if (mode === 'analysis') {
+        return allFrequencyScore * 1.5 + recentFrequencyScore * 0.5 + bandBonus - sumPenalty - oddPenalty - consecutivePenalty - similarityPenalty;
+      }
+
+      if (mode === 'recent') {
+        return recentFrequencyScore * 2.4 + allFrequencyScore * 0.3 + bandBonus - sumPenalty - oddPenalty - consecutivePenalty - similarityPenalty;
+      }
+
+      if (mode === 'avoidLast') {
+        return allFrequencyScore * 0.7 + gapScore * 1.6 + bandBonus - latestOverlap * 50 - sumPenalty - oddPenalty - consecutivePenalty - similarityPenalty;
+      }
+
+      if (mode === 'spread') {
+        return bandBonus * 4 + recentFrequencyScore * 0.7 + allFrequencyScore * 0.2 - sumPenalty * 1.5 - oddPenalty * 1.5 - consecutivePenalty * 2 - similarityPenalty;
+      }
+
+      if (mode === 'random') {
+        return bandBonus * 1.4 - sumPenalty - oddPenalty - consecutivePenalty - latestOverlap * 10 - similarityPenalty * 0.5;
+      }
+
+      return allFrequencyScore + bandBonus - sumPenalty - oddPenalty - consecutivePenalty - similarityPenalty;
     }
 
-    function generateBestSet(analysis, mode, existingGames, attempts = 500) {
+    function generateBestSet(analysis, mode, existingGames, attempts = 700) {
       let bestSet = null;
       let bestScore = -Infinity;
 
       for (let i = 0; i < attempts; i += 1) {
-        const candidate = createRandomCandidate(analysis, mode);
+        const candidate = createCandidate(analysis, mode);
 
         if (candidate.length !== 6) continue;
         if (new Set(candidate).size !== 6) continue;
 
-        const similarityPenalty = isTooSimilar(candidate, existingGames) ? 40 : 0;
-        const score = getSetScore(candidate, analysis, mode) - similarityPenalty;
+        const score = getSetScore(candidate, analysis, mode, existingGames);
 
         if (score > bestScore) {
           bestSet = candidate;
@@ -312,40 +345,40 @@
     function generateRecommendations(analysis) {
       const games = [];
 
-      const gamePlans = [
+      const plans = [
         {
-          label: 'A 정석형',
-          subtitle: '분석 점수 최우선',
-          description: '전체 회차 기준으로 자주 나온 번호의 비중을 높인 조합입니다.',
-          mode: 'classic'
+          label: 'A 분석형',
+          subtitle: '전회차 빈도 중심',
+          description: '전체 회차에서 많이 나온 번호 흐름을 가장 강하게 반영합니다.',
+          mode: 'analysis'
         },
         {
-          label: 'B 밸런스형',
-          subtitle: 'Hot/Mid/Cold 균형',
-          description: '다출현, 보통, 저출현 번호를 균형 있게 섞은 조합입니다.',
-          mode: 'balanced'
+          label: 'B 최근형',
+          subtitle: `최근 ${CONFIG.recentWindow}회 흐름`,
+          description: '최근 흐름에 더 민감하게 반응하는 조합입니다.',
+          mode: 'recent'
         },
         {
-          label: 'C 분산형',
-          subtitle: '번호대 분산',
-          description: '번호 구간, 홀짝, 합계가 한쪽으로 쏠리지 않게 만든 조합입니다.',
+          label: 'C 회피형',
+          subtitle: '직전 회차 겹침 최소화',
+          description: '직전 당첨번호와의 겹침을 강하게 줄인 조합입니다.',
+          mode: 'avoidLast'
+        },
+        {
+          label: 'D 분산형',
+          subtitle: '구간·홀짝·합계 분산',
+          description: '번호대가 한쪽에 몰리지 않도록 퍼뜨린 조합입니다.',
           mode: 'spread'
         },
         {
-          label: 'D 반전형',
-          subtitle: 'Cold 가중',
-          description: '최근 덜 보인 번호와 저출현 번호를 조금 더 과감하게 반영한 조합입니다.',
-          mode: 'coldComeback'
-        },
-        {
-          label: 'E 창의형',
-          subtitle: '의외성 조합',
-          description: '분석 흐름은 참고하되 반복되는 숫자와 뻔한 구성을 줄인 조합입니다.',
-          mode: 'wild'
+          label: 'E 랜덤형',
+          subtitle: '분석 가중치 낮음',
+          description: '복권다운 의외성을 살리기 위해 거의 무작위에 가깝게 생성합니다.',
+          mode: 'random'
         }
       ];
 
-      gamePlans.forEach((plan) => {
+      plans.forEach((plan) => {
         const numbers = generateBestSet(analysis, plan.mode, games);
 
         if (Array.isArray(numbers) && numbers.length === 6) {
@@ -357,6 +390,66 @@
       });
 
       return games;
+    }
+
+    function loadPreviousSnapshot() {
+      try {
+        const raw = localStorage.getItem(CONFIG.snapshotKey);
+        if (!raw) return null;
+
+        const parsed = JSON.parse(raw);
+
+        if (!parsed || !Array.isArray(parsed.games)) return null;
+        return parsed;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function saveCurrentSnapshot() {
+      if (!state.draws[0] || !state.recommendations.length) return;
+
+      const snapshot = {
+        savedAt: new Date().toISOString(),
+        basedOnLatestDrawNo: state.draws[0].drawNo,
+        games: state.recommendations.map((game) => ({
+          label: game.label,
+          subtitle: game.subtitle,
+          numbers: game.numbers
+        }))
+      };
+
+      localStorage.setItem(CONFIG.snapshotKey, JSON.stringify(snapshot));
+      state.previousSnapshot = snapshot;
+      renderApp();
+    }
+
+    function getSnapshotResult() {
+      const snapshot = state.previousSnapshot;
+      const latestDraw = state.draws[0];
+
+      if (!snapshot || !latestDraw) return null;
+      if (snapshot.basedOnLatestDrawNo >= latestDraw.drawNo) return null;
+
+      const winningNumbers = latestDraw.numbers || [];
+
+      const rows = snapshot.games.map((game) => {
+        const hits = game.numbers.filter((num) => winningNumbers.includes(num));
+        const bonusHit = latestDraw.bonus && game.numbers.includes(latestDraw.bonus);
+
+        return {
+          ...game,
+          hits,
+          bonusHit
+        };
+      });
+
+      return {
+        basedOnLatestDrawNo: snapshot.basedOnLatestDrawNo,
+        latestDrawNo: latestDraw.drawNo,
+        latestDraw,
+        rows
+      };
     }
 
     function resetDrawMachine() {
@@ -428,7 +521,7 @@
         <div class="flex min-h-screen flex-col items-center justify-center bg-slate-50 p-6 text-center text-slate-700">
           <div class="mb-4 text-5xl">⚠</div>
           <h1 class="mb-2 text-xl font-bold text-slate-900">데이터 로딩 실패</h1>
-          <p class="mb-6 max-w-xl text-sm leading-relaxed text-slate-500">${message}</p>
+          <p class="mb-6 max-w-xl text-sm leading-relaxed text-slate-500">${escapeHtml(message)}</p>
 
           <div class="max-w-xl rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left text-sm leading-relaxed text-amber-900">
             저장소에 <code class="rounded bg-amber-100 px-1">lotto-history.json</code>이 없으면 이 화면은 데이터를 표시할 수 없습니다.
@@ -465,6 +558,69 @@
       `).join('');
     }
 
+    function renderSnapshotResult() {
+      const result = getSnapshotResult();
+
+      if (!result) {
+        return `
+          <section class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div class="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+              <div>
+                <h2 class="text-lg font-bold text-slate-900">지난 추천 검증</h2>
+                <p class="mt-1 text-sm text-slate-500">
+                  다음 회차 데이터가 업데이트되면 이전 추천이 몇 개 맞았는지 이곳에 표시됩니다.
+                </p>
+              </div>
+              <button
+                id="saveSnapshotButton"
+                class="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
+              >
+                이번 추천 저장
+              </button>
+            </div>
+          </section>
+        `;
+      }
+
+      return `
+        <section class="rounded-2xl border border-rose-100 bg-white p-6 shadow-sm">
+          <div class="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+            <div>
+              <h2 class="text-lg font-bold text-slate-900">지난 추천 검증</h2>
+              <p class="mt-1 text-sm text-slate-500">
+                ${result.basedOnLatestDrawNo}회 기준 추천을 ${result.latestDrawNo}회 당첨번호와 비교했습니다.
+              </p>
+              <p class="mt-2 text-sm font-semibold text-slate-700">
+                ${result.latestDrawNo}회 당첨번호: ${result.latestDraw.numbers.join(', ')}${result.latestDraw.bonus ? ` + 보너스 ${result.latestDraw.bonus}` : ''}
+              </p>
+            </div>
+
+            <button
+              id="saveSnapshotButton"
+              class="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
+            >
+              이번 추천으로 갱신 저장
+            </button>
+          </div>
+
+          <div class="mt-5 grid grid-cols-1 gap-3 md:grid-cols-5">
+            ${result.rows.map((row) => `
+              <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div class="text-sm font-bold text-slate-900">${escapeHtml(row.label)}</div>
+                <div class="mt-1 text-xs text-slate-500">${escapeHtml(row.subtitle || '')}</div>
+                <div class="mt-3 text-sm font-semibold ${row.hits.length >= 3 ? 'text-rose-600' : 'text-slate-600'}">
+                  ${row.hits.length}개 적중${row.bonusHit ? ' + 보너스' : ''}
+                </div>
+                <div class="mt-2 text-xs text-slate-400">
+                  ${row.hits.length ? row.hits.join(', ') : '적중 없음'}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </section>
+      `;
+    }
+
     function getRevealMeta() {
       const totalNumbers = state.recommendations.length * CONFIG.numbersPerGame;
 
@@ -483,7 +639,7 @@
             <div>
               <h2 class="text-xl font-bold text-slate-900">로또 추첨기</h2>
               <p class="mt-1 text-sm text-slate-500">
-                버튼을 누를 때마다 번호가 하나씩 공개됩니다. 성격이 다른 ${CONFIG.gameCount}게임만 추천합니다.
+                버튼을 누를 때마다 번호가 하나씩 공개됩니다. 분석형 2게임, 변주형 3게임입니다.
               </p>
             </div>
             <div class="rounded-full bg-white px-4 py-2 text-sm font-semibold text-indigo-700 shadow-sm">
@@ -540,9 +696,9 @@
                 </span>
 
                 <div>
-                  <h3 class="font-bold text-slate-900">${game.label}</h3>
-                  <p class="mt-0.5 text-xs font-semibold text-indigo-600">${game.subtitle}</p>
-                  <p class="mt-1 text-xs leading-relaxed text-slate-500">${game.description}</p>
+                  <h3 class="font-bold text-slate-900">${escapeHtml(game.label)}</h3>
+                  <p class="mt-0.5 text-xs font-semibold text-indigo-600">${escapeHtml(game.subtitle)}</p>
+                  <p class="mt-1 text-xs leading-relaxed text-slate-500">${escapeHtml(game.description)}</p>
                 </div>
               </div>
 
@@ -597,9 +753,9 @@
                     실제 당첨번호 기반 로또 추첨기
                   </h1>
                   <p class="mt-2 text-slate-500">
-                    전회차 당첨번호 ${state.draws.length}개 회차를 분석한 뒤, 성격이 다른 ${CONFIG.gameCount}게임을 추첨식으로 공개합니다.
+                    전회차 당첨번호 ${state.draws.length}개 회차를 분석하되, 분석형·최근형·회피형·분산형·랜덤형으로 나누어 공개합니다.
                   </p>
-                  <p class="mt-1 text-xs text-slate-400">데이터 출처: ${state.source}</p>
+                  <p class="mt-1 text-xs text-slate-400">데이터 출처: ${escapeHtml(state.source)}</p>
                   <p class="mt-1 text-xs text-slate-400">데이터 업데이트: ${updatedAtText}</p>
                 </div>
               </div>
@@ -611,6 +767,8 @@
                 </div>
               </div>
             </header>
+
+            ${renderSnapshotResult()}
 
             ${renderDrawMachine()}
 
@@ -625,13 +783,14 @@
                   <ul class="space-y-3 text-sm leading-relaxed text-slate-600">
                     <li>• <strong>분석 회차:</strong> ${oldestDraw.drawNo}회 ~ ${latestDraw.drawNo}회</li>
                     <li>• <strong>분석 대상:</strong> 전회차 당첨번호 (${state.draws.length}회차)</li>
+                    <li>• <strong>최근 흐름:</strong> 최근 ${Math.min(CONFIG.recentWindow, state.draws.length)}회차 별도 반영</li>
                     <li>• <strong>총 분석 번호 수:</strong> ${totalNumbers}개</li>
                     <li>• <strong>평균 출현 기대치:</strong> 약 ${expectedAverage}회</li>
                     <li>• <strong class="text-red-600">Hot:</strong> 출현 빈도 상위 15개</li>
                     <li>• <strong class="text-green-600">Mid:</strong> 출현 빈도 중위 15개</li>
                     <li>• <strong class="text-blue-600">Cold:</strong> 출현 빈도 하위 15개</li>
                     <li class="border-t border-slate-100 pt-2">
-                      <strong>추천 방식:</strong> 정석형, 밸런스형, 분산형, 반전형, 창의형으로 성격을 나누어 생성합니다.
+                      <strong>추천 방식:</strong> 2개는 분석형, 3개는 회피·분산·랜덤 변주형입니다.
                     </li>
                   </ul>
                 </section>
@@ -674,7 +833,7 @@
               <main class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
                 <div class="mb-6 border-b border-slate-100 pb-4">
                   <h2 class="text-xl font-bold text-slate-900">추천 번호 ${CONFIG.gameCount}게임</h2>
-                  <p class="mt-1 text-sm text-slate-500">분석형 2게임, 변주형 3게임으로 나누어 번호를 공개합니다.</p>
+                  <p class="mt-1 text-sm text-slate-500">A·B는 분석 중심, C·D·E는 변주 중심입니다.</p>
                 </div>
 
                 <div class="grid grid-cols-1 gap-4">
@@ -693,6 +852,9 @@
       document.getElementById('revealNextButton').addEventListener('click', revealNextNumber);
       document.getElementById('revealGameButton').addEventListener('click', revealNextGame);
       document.getElementById('resetButton').addEventListener('click', resetDrawMachine);
+
+      const saveButton = document.getElementById('saveSnapshotButton');
+      if (saveButton) saveButton.addEventListener('click', saveCurrentSnapshot);
     }
 
     async function init() {
@@ -703,12 +865,20 @@
         state.draws = result.draws;
         state.source = result.source;
         state.updatedAt = result.updatedAt;
+        state.previousSnapshot = loadPreviousSnapshot();
         state.analysis = analyzeData(state.draws);
         state.recommendations = generateRecommendations(state.analysis);
         state.revealedCount = 0;
         state.isFinished = false;
         state.error = null;
-        renderApp();
+
+        if (!state.previousSnapshot) {
+          setTimeout(() => {
+            saveCurrentSnapshot();
+          }, 0);
+        } else {
+          renderApp();
+        }
       } catch (error) {
         state.error = error.message || '알 수 없는 오류가 발생했습니다.';
         renderError(state.error);
