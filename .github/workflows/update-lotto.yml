@@ -1,39 +1,1085 @@
-name: Update Lotto History
+아래 코드 블록의 복사 버튼을 눌러, GitHub의 기존 index.html 내용을 전부 교체하세요. 같은 폴더에 **1회부터 전체 회차가 담긴 lotto-history.json**이 있어야 합니다.
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>로또 랩 · 분석 추첨기</title>
+<style>
+:root{font-family:system-ui,-apple-system,sans-serif;color:#20352c;background:#f3f5ef}
+*{box-sizing:border-box}
+body{margin:0}
+main{max-width:1080px;margin:auto;padding:32px 24px}
+header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #cdd8ce;padding-bottom:20px}
+.brand{font-weight:850;letter-spacing:-1px;font-size:22px}
+.eyebrow{font-size:12px;letter-spacing:2px;color:#577765}
+h1{font-size:clamp(30px,5vw,48px);letter-spacing:-2px;margin:24px 0 12px}
+h2{font-size:19px;margin:0 0 12px}
+p{line-height:1.65}
+.muted,small{color:#5e7065}
+.hero{padding:12px 0 26px}
+.layout{display:grid;grid-template-columns:1.7fr 1fr;gap:22px}
+.card{background:#fff;border:1px solid #dce4da;border-radius:20px;padding:24px;margin-bottom:20px}
+.machine{background:#173f32;color:#fff}
+.machine .muted{color:#bed3c4}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
+button{font:inherit;font-weight:700;border:1px solid #c9d7c9;border-radius:10px;padding:12px 18px;cursor:pointer;background:#fff;color:#234536}
+button.primary{background:#d5f684;color:#20352c;border-color:#d5f684}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible{outline:3px solid #dc9b14;outline-offset:3px}
+.game{border-bottom:1px solid #e5ebe2;padding:20px 0}
+.game:first-child{padding-top:0}
+.game:last-child{border:0;padding-bottom:0}
+.gamehead{display:flex;justify-content:space-between;gap:10px;margin-bottom:14px}
+.balls{display:flex;gap:9px;flex-wrap:wrap}
+.ball{display:inline-flex;width:42px;height:42px;border-radius:50%;align-items:center;justify-content:center;font-size:17px;font-weight:800;background:#edf0eb;color:#69776e}
+.c0{background:#f8dc77;color:#594309}
+.c1{background:#a8d7f8;color:#1b4b70}
+.c2{background:#f4b7b4;color:#732e2a}
+.c3{background:#d2d7dc;color:#384550}
+.c4{background:#b8e0ba;color:#285530}
+.new{animation:pop .35s ease-out}
+.tag{background:#edf3e6;padding:5px 9px;border-radius:7px;font-size:12px}
+.notice{border-left:3px solid #b28124;padding:10px 14px;background:#fff7de;color:#664c19}
+.history{border-bottom:1px solid #dce4da;padding:16px 0}
+.history p{margin:5px 0}
+.freq{display:grid;grid-template-columns:repeat(9,1fr);gap:6px}
+.freq div{text-align:center;background:#f1f5ec;border-radius:7px;padding:8px 2px;font-size:13px}
+.freq small{display:block;font-size:10px}
+progress{width:100%;height:7px;accent-color:#d5f684}
+footer{font-size:12px;color:#657468;padding:12px 0 30px}
+a{color:inherit}
+textarea,select,input{font:inherit}
+textarea{width:100%;min-height:170px;border:1px solid #b9cbbb;border-radius:10px;padding:14px;line-height:1.8}
+label{display:block;margin:14px 0 8px}
+input[type=checkbox]{width:18px;height:18px;vertical-align:middle;margin-right:8px}
+.results{padding:14px;background:#f0f6e9;border-radius:12px;margin-top:16px}
+.results p{margin:6px 0}
+.db-note{font-size:13px;color:#5e7065}
+details{margin-top:16px}
+summary{cursor:pointer;font-weight:700}
+.purchase-list{max-height:460px;overflow:auto}
+select{padding:8px;border-radius:8px;border:1px solid #b9cbbb}
+.hidden{display:none}
+@keyframes pop{from{transform:scale(.7)}to{transform:scale(1)}}
+@media(max-width:760px){
+  main{padding:20px 16px}
+  .layout{display:block}
+  .card{padding:20px}
+  .ball{width:38px;height:38px}
+  .balls{gap:7px}
+}
+@media(prefers-reduced-motion:reduce){.new{animation:none}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <span class="brand">로또 랩 <small>6/45</small></span>
+    <span class="eyebrow">LOTTO LAB</span>
+  </header>
 
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: '30 13 * * 6'
+  <section class="hero">
+    <p class="eyebrow">기록을 살펴보고, 한 번호씩</p>
+    <h1>다섯 가지 시선으로 뽑는<br>이번 주의 여섯 번호.</h1>
+    <p class="muted">지난 실구매 번호를 확인하고, 다음 회차 추천을 시작하세요.</p>
+  </section>
 
-permissions:
-  contents: write
+  <div id="app">당첨번호 기록을 불러오는 중입니다…</div>
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  <footer>
+    과거 빈도는 다음 당첨을 예측하지 않습니다. 모든 6개 조합의 1등 확률은 동일합니다.<br>
+    자료: <a href="https://github.com/smok95/lotto">smok95/lotto</a>
+    · 최종 당첨번호는 동행복권에서 확인하세요.
+  </footer>
+</main>
 
-jobs:
-  update:
-    runs-on: ubuntu-latest
+<script>
+'use strict';
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+const KEY = 'lotto-recommendation-history-v4';
+const PURCHASE_DB = 'lotto-purchases-v1';
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
+const PLANS = [
+  ['A 분석형', '전회차 출현 빈도'],
+  ['B 최근형', '최근 100회 출현 빈도'],
+  ['C 회피형', '직전 당첨번호 6개 제외'],
+  ['D 분산형', '번호대 · 홀짝 · 합계 균형'],
+  ['E 랜덤형', '분석 가중치 없는 무작위']
+];
 
-      - name: Update lotto history JSON
-        run: node scripts/update-lotto-history.js
+const state = {
+  draws: [],
+  games: [],
+  revealed: 0,
+  records: [],
+  warning: '',
+  saved: false,
+  purchases: [],
+  purchaseReady: false,
+  purchaseDraft: '',
+  noPurchase: false,
+  purchaseMessage: '',
+  purchaseBusy: false,
+  gateRound: null
+};
 
-      - name: Check generated file
-        run: |
-          ls -la
-          head -80 lotto-history.json
+const esc = s => String(s).replace(/[&<>"']/g, c => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+}[c]));
 
-      - name: Commit updated lotto history
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: Update lotto history
-          file_pattern: lotto-history.json
+const validNumbers = n =>
+  Array.isArray(n) &&
+  n.length === 6 &&
+  new Set(n).size === 6 &&
+  n.every(x => Number.isInteger(x) && x >= 1 && x <= 45);
+
+function validateDraws(rows) {
+  if (!Array.isArray(rows) || !rows.length) {
+    throw Error('회차 데이터가 없습니다.');
+  }
+
+  const d = rows.slice().sort((a, b) => a.drawNo - b.drawNo);
+
+  d.forEach((r, i) => {
+    if (
+      r.drawNo !== i + 1 ||
+      !validNumbers(r.numbers) ||
+      !Number.isInteger(r.bonus) ||
+      r.bonus < 1 ||
+      r.bonus > 45 ||
+      r.numbers.includes(r.bonus) ||
+      !Number.isFinite(Date.parse(r.date))
+    ) {
+      throw Error('전체 회차 데이터 검증에 실패했습니다.');
+    }
+  });
+
+  return d.reverse();
+}
+
+function analyze(draws) {
+  const all = Array(46).fill(0);
+  const recent = Array(46).fill(0);
+
+  draws.forEach((d, i) => {
+    d.numbers.forEach(n => {
+      all[n]++;
+      if (i < 100) recent[n]++;
+    });
+  });
+
+  return { all, recent };
+}
+
+function random() {
+  const a = new Uint32Array(1);
+  crypto.getRandomValues(a);
+  return a[0] / 4294967296;
+}
+
+function pick(weights, blocked = []) {
+  const pool = Array.from({ length: 45 }, (_, i) => i + 1)
+    .filter(n => !blocked.includes(n));
+  const out = [];
+
+  while (out.length < 6) {
+    let t = random() * pool.reduce((s, n) => s + weights(n), 0);
+    let i = 0;
+
+    for (; i < pool.length - 1; i++) {
+      t -= weights(pool[i]);
+      if (t < 0) break;
+    }
+
+    out.push(pool.splice(i, 1)[0]);
+  }
+
+  return out.sort((a, b) => a - b);
+}
+
+function spreadScore(n) {
+  const odd = n.filter(x => x % 2).length;
+  const sum = n.reduce((a, b) => a + b, 0);
+  const bands = new Set(n.map(x => Math.floor((x - 1) / 10))).size;
+
+  return bands * 20 - Math.abs(odd - 3) * 15 - Math.abs(sum - 138) / 3;
+}
+
+function generate(draws) {
+  const a = analyze(draws);
+  const games = [];
+
+  for (let mode = 0; mode < 5; mode++) {
+    let n;
+
+    for (let tries = 0; tries < 100; tries++) {
+      if (mode === 3) {
+        n = pick(() => 1);
+
+        for (let i = 0; i < 150; i++) {
+          const c = pick(() => 1);
+          if (spreadScore(c) > spreadScore(n)) n = c;
+        }
+      } else {
+        n = pick(
+          x => mode === 0
+            ? 1 + a.all[x]
+            : mode === 1
+              ? 1 + a.recent[x]
+              : 1,
+          mode === 2 ? draws[0].numbers : []
+        );
+      }
+
+      if (!games.some(g => g.numbers.join() === n.join())) break;
+    }
+
+    games.push({ label: PLANS[mode][0], numbers: n });
+  }
+
+  return games;
+}
+
+function normalizeRecord(r) {
+  if (
+    !r ||
+    !Number.isInteger(r.basedOnLatestDrawNo) ||
+    r.basedOnLatestDrawNo < 1 ||
+    !Array.isArray(r.games) ||
+    r.games.length !== 5 ||
+    !r.games.every(g => g && validNumbers(g.numbers)) ||
+    !Number.isFinite(Date.parse(r.savedAt))
+  ) {
+    return null;
+  }
+
+  const target = r.basedOnLatestDrawNo + 1;
+  if (r.targetDrawNo !== undefined && r.targetDrawNo !== target) return null;
+
+  return {
+    id: typeof r.id === 'string' ? r.id : crypto.randomUUID(),
+    savedAt: r.savedAt,
+    basedOnLatestDrawNo: r.basedOnLatestDrawNo,
+    targetDrawNo: target,
+    games: r.games.map((g, i) => ({
+      label: PLANS[i][0],
+      numbers: g.numbers.slice()
+    }))
+  };
+}
+
+function loadRecords() {
+  try {
+    const raw = localStorage.getItem(KEY);
+
+    if (raw) {
+      const data = JSON.parse(raw);
+
+      if (!Array.isArray(data) || data.some(r => !normalizeRecord(r))) {
+        throw Error();
+      }
+
+      return data.map(normalizeRecord);
+    }
+
+    const old = localStorage.getItem('lotto-recommendation-snapshot-v3');
+
+    if (old) {
+      const r = normalizeRecord(JSON.parse(old));
+      if (!r) throw Error();
+      return [r];
+    }
+
+    return [];
+  } catch {
+    state.warning =
+      '저장 기록을 읽을 수 없습니다. 기존 저장값을 보호하기 위해 이 화면에서는 저장을 중지했습니다.';
+    state.storageBlocked = true;
+    return [];
+  }
+}
+
+function result(record, draws) {
+  const draw = draws.find(d => d.drawNo === record.targetDrawNo);
+  if (!draw) return null;
+
+  return record.games.map(g => {
+    const hits = g.numbers.filter(n => draw.numbers.includes(n));
+    const bonus = g.numbers.includes(draw.bonus);
+    const rank = hits.length === 6
+      ? 1
+      : hits.length === 5
+        ? (bonus ? 2 : 3)
+        : hits.length === 4
+          ? 4
+          : hits.length === 3
+            ? 5
+            : null;
+
+    return { ...g, hits, bonus, rank };
+  });
+}
+
+function save() {
+  if (state.saved || state.revealed !== 30 || state.storageBlocked) return;
+
+  const target = state.draws[0].drawNo + 1;
+  const date = new Date(state.draws[0].date);
+  date.setUTCDate(date.getUTCDate() + 7);
+
+  const cutoff = Date.parse(
+    date.toISOString().slice(0, 10) + 'T20:00:00+09:00'
+  );
+
+  if (Date.now() >= cutoff) {
+    state.warning =
+      '대상 회차의 판매 마감 시간이 지났습니다. 당첨번호 업데이트 후 새 추천을 저장하세요.';
+    render();
+    return;
+  }
+
+  try {
+    const current = localStorage.getItem(KEY);
+    const records = current ? JSON.parse(current) : state.records;
+
+    if (!Array.isArray(records) || records.some(r => !normalizeRecord(r))) {
+      throw Error('기존 저장값 오류');
+    }
+
+    const r = {
+      id: crypto.randomUUID(),
+      savedAt: new Date().toISOString(),
+      basedOnLatestDrawNo: target - 1,
+      targetDrawNo: target,
+      games: state.games
+    };
+
+    const next = [r, ...records];
+    localStorage.setItem(KEY, JSON.stringify(next));
+
+    state.records = next;
+    state.saved = true;
+    state.warning = '';
+  } catch {
+    state.warning =
+      '브라우저 저장에 실패했습니다. 저장 공간 또는 개인정보 보호 설정을 확인하세요.';
+  }
+
+  render();
+}
+
+/* 실구매 기록은 추천 기록과 별도로 보관합니다. */
+
+function parsePurchase(text, noPurchase = false) {
+  if (noPurchase) {
+    if (text.trim()) {
+      throw Error('구매 안 함을 선택하려면 입력한 번호를 지워주세요.');
+    }
+    return [];
+  }
+
+  const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
+
+  if (!text.trim()) {
+    throw Error('구매한 번호를 한 게임에 한 줄씩 입력하세요.');
+  }
+
+  if (lines.length > 100) {
+    throw Error('한 번에 최대 100게임까지 입력할 수 있습니다.');
+  }
+
+  return lines.map((line, i) => {
+    const tokens = line.trim().split(/[\s,]+/);
+
+    if (tokens.some(t => !/^\d{1,2}$/.test(t))) {
+      throw Error(`${i + 1}번째 줄: 숫자는 공백 또는 쉼표로 구분하세요.`);
+    }
+
+    const numbers = tokens.map(Number);
+
+    if (!validNumbers(numbers)) {
+      throw Error(`${i + 1}번째 줄: 1~45의 서로 다른 번호 6개를 입력하세요.`);
+    }
+
+    return numbers.sort((a, b) => a - b);
+  });
+}
+
+function validPurchase(r) {
+  return !!r &&
+    typeof r.id === 'string' &&
+    r.id.length > 0 &&
+    r.id.length < 100 &&
+    Number.isInteger(r.drawNo) &&
+    r.drawNo > 0 &&
+    typeof r.noPurchase === 'boolean' &&
+    Number.isFinite(Date.parse(r.savedAt)) &&
+    Array.isArray(r.games) &&
+    r.games.length <= 100 &&
+    (
+      r.noPurchase
+        ? r.games.length === 0
+        : r.games.length > 0 && r.games.every(validNumbers)
+    );
+}
+
+function purchaseResults(record, draws) {
+  return result({
+    targetDrawNo: record.drawNo,
+    games: record.games.map((numbers, i) => ({
+      label: `${i + 1}게임`,
+      numbers
+    }))
+  }, draws);
+}
+
+function latestPurchases(records) {
+  const map = new Map();
+
+  for (const r of records.slice().sort(
+    (a, b) => a.savedAt.localeCompare(b.savedAt) || a.id.localeCompare(b.id)
+  )) {
+    map.set(r.drawNo, r);
+  }
+
+  return [...map.values()].sort((a, b) => b.drawNo - a.drawNo);
+}
+
+function openPurchaseDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(PURCHASE_DB, 1);
+
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore('purchases', { keyPath: 'id' });
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(
+      Error('다른 탭을 닫고 다시 시도하세요.')
+    );
+  });
+}
+
+async function readPurchases() {
+  const db = await openPurchaseDB();
+
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction('purchases', 'readonly');
+      const req = tx.objectStore('purchases').getAll();
+      let rows;
+
+      req.onsuccess = () => {
+        rows = req.result;
+      };
+
+      tx.oncomplete = () => {
+        if (rows.some(r => !validPurchase(r))) {
+          reject(Error('저장된 구매 기록 형식에 오류가 있습니다.'));
+        } else {
+          resolve(rows);
+        }
+      };
+
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function writePurchases(records) {
+  if (records.some(r => !validPurchase(r))) {
+    throw Error('구매 기록 형식 오류');
+  }
+
+  const db = await openPurchaseDB();
+
+  try {
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('purchases', 'readwrite');
+      const store = tx.objectStore('purchases');
+      let conflict = false;
+
+      for (const r of records) {
+        const request = store.get(r.id);
+
+        request.onsuccess = () => {
+          if (
+            request.result &&
+            JSON.stringify(request.result) !== JSON.stringify(r)
+          ) {
+            conflict = true;
+            tx.abort();
+          } else if (!request.result) {
+            store.add(r);
+          }
+        };
+      }
+
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(Error(
+        conflict
+          ? '같은 ID의 다른 기록이 있어 복원을 취소했습니다.'
+          : '기록 저장에 실패했습니다.'
+      ));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+function formatPurchaseRows(r) {
+  if (r.noPurchase) return '<p>구매 안 함으로 기록했습니다.</p>';
+
+  const rows = purchaseResults(r, state.draws);
+  if (!rows) return '<p>당첨번호 데이터 대기 중</p>';
+
+  return rows.map(g => `
+    <p>
+      <strong>${g.label}</strong> · ${g.numbers.join(', ')}<br>
+      <small>
+        본번호 ${g.hits.length}개 일치
+        ${g.hits.length ? '(' + g.hits.join(', ') + ')' : ''}
+        ${g.bonus ? ' · 보너스 일치' : ''}
+        · <strong>${g.rank ? g.rank + '등' : '미당첨'}</strong>
+      </small>
+    </p>
+  `).join('');
+}
+
+function renderPurchases() {
+  const latest = state.draws[0];
+  const current = latestPurchases(state.purchases);
+  const selected = current.find(r => r.drawNo === latest.drawNo);
+
+  return `
+    <section class="card">
+      <p class="eyebrow">STEP 01 · 실제 구매 확인</p>
+      <h2>제${latest.drawNo}회, 실제로 구매한 번호를 입력하세요</h2>
+      <p class="muted">
+        가장 최근 발표된 회차(${esc(latest.date.slice(0, 10))})의 복권을 입력하세요.
+        추천했던 번호와 실제 구매 번호는 별도로 관리합니다.
+      </p>
+
+      <label for="purchase-input">구매 번호 · 한 줄에 한 게임, 최대 100게임</label>
+      <textarea
+        id="purchase-input"
+        placeholder="1 7 12 23 34 45&#10;3, 9, 15, 22, 31, 42"
+        ${state.purchaseBusy ? 'disabled' : ''}
+      >${esc(state.purchaseDraft)}</textarea>
+
+      <label>
+        <input
+          type="checkbox"
+          id="no-purchase"
+          ${state.noPurchase ? 'checked' : ''}
+          ${state.purchaseBusy ? 'disabled' : ''}
+        >
+        이 회차는 구매하지 않았습니다
+      </label>
+
+      <p class="db-note">
+        ${selected
+          ? '이 회차의 저장 기록을 불러왔습니다. 내용을 확인하고 분석 버튼을 눌러주세요.'
+          : '직접 입력한 번호만 실구매 기록으로 저장합니다.'}
+        같은 번호를 여러 장 구매했다면 같은 줄을 반복해서 입력하세요.
+      </p>
+
+      <div class="toolbar">
+        <button
+          id="analyze-purchase"
+          class="primary"
+          ${state.purchaseBusy || !state.purchaseReady ? 'disabled' : ''}
+        >
+          ${state.purchaseBusy ? '저장 중…' : '실구매 기록 저장 · 분석하기'}
+        </button>
+      </div>
+
+      <p id="purchase-message" role="status">${esc(state.purchaseMessage)}</p>
+
+      ${state.gateRound === latest.drawNo && selected ? `
+        <div class="results">
+          <strong>실구매 분석 완료 · 다음 회차 추천을 생성할 수 있습니다</strong>
+          ${formatPurchaseRows(selected)}
+        </div>
+      ` : ''}
+
+      <p class="db-note">
+        보관 위치: 이 브라우저의 구매 기록 DB.
+        다른 기기와 자동 동기화되지 않습니다.
+        브라우저 데이터 삭제에 대비해 백업 파일을 보관하세요.
+      </p>
+
+      <details>
+        <summary>실구매 기록 보관함 · ${current.length}회차</summary>
+
+        <div class="toolbar">
+          <button
+            id="backup-purchases"
+            ${!state.purchaseReady ? 'disabled' : ''}
+          >구매 기록 백업</button>
+
+          <a id="backup-download" class="hidden">백업 파일 다운로드</a>
+
+          <button
+            id="restore-purchases"
+            ${!state.purchaseReady ? 'disabled' : ''}
+          >백업 복원</button>
+
+          <input
+            id="purchase-file"
+            class="hidden"
+            type="file"
+            accept=".json,application/json"
+          >
+        </div>
+
+        <div class="purchase-list">
+          ${current.length ? current.map(r => `
+            <div class="history">
+              <strong>
+                제${r.drawNo}회 ·
+                ${r.noPurchase ? '구매 안 함' : r.games.length + '게임 구매'}
+              </strong>
+              <small> · 입력 ${esc(r.savedAt.slice(0, 10))}</small>
+              ${formatPurchaseRows(r)}
+            </div>
+          `).join('') : '<p>저장된 실구매 기록이 없습니다.</p>'}
+        </div>
+
+        <p class="db-note">
+          수정 기록도 DB와 백업에 보존하며,
+          화면 분석은 회차별 마지막 입력을 기준으로 합니다.
+        </p>
+      </details>
+    </section>
+  `;
+}
+
+function invalidatePurchase(focusId, selection) {
+  state.gateRound = null;
+  state.games = [];
+  state.revealed = 0;
+  state.saved = false;
+  state.purchaseMessage = '내용이 변경되었습니다. 저장·분석을 다시 진행하세요.';
+
+  render();
+
+  const input = document.getElementById(focusId);
+  input.focus();
+
+  if (selection !== undefined) {
+    input.setSelectionRange(selection, selection);
+  }
+}
+
+async function analyzePurchase() {
+  if (state.purchaseBusy || !state.purchaseReady) return;
+
+  try {
+    const games = parsePurchase(state.purchaseDraft, state.noPurchase);
+    const drawNo = state.draws[0].drawNo;
+
+    state.purchaseBusy = true;
+    state.gateRound = null;
+    state.games = [];
+    state.revealed = 0;
+    state.saved = false;
+    state.purchaseMessage = '기록을 안전하게 저장하고 있습니다.';
+    render();
+
+    const existing = latestPurchases(await readPurchases())
+      .find(r => r.drawNo === drawNo);
+
+    if (
+      !existing ||
+      existing.noPurchase !== state.noPurchase ||
+      JSON.stringify(existing.games) !== JSON.stringify(games)
+    ) {
+      await writePurchases([{
+        id: crypto.randomUUID(),
+        drawNo,
+        savedAt: new Date().toISOString(),
+        noPurchase: state.noPurchase,
+        games
+      }]);
+    }
+
+    state.purchases = await readPurchases();
+    state.gateRound = drawNo;
+    state.purchaseMessage =
+      '저장과 분석이 완료되었습니다. 아래에서 추천번호를 생성하세요.';
+  } catch (e) {
+    state.purchaseMessage =
+      e.message || '구매 기록 저장에 실패했습니다. 브라우저 저장 설정을 확인하세요.';
+  } finally {
+    state.purchaseBusy = false;
+    render();
+  }
+}
+
+async function backupPurchases() {
+  try {
+    const records = await readPurchases();
+    const blob = new Blob([
+      JSON.stringify({
+        type: 'lotto-purchases',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        records
+      }, null, 2)
+    ], { type: 'application/json' });
+
+    if (state.backupURL) URL.revokeObjectURL(state.backupURL);
+    state.backupURL = URL.createObjectURL(blob);
+
+    const a = document.getElementById('backup-download');
+    a.href = state.backupURL;
+    a.download = `lotto-purchases-${new Date().toISOString().slice(0, 10)}.json`;
+    a.classList.remove('hidden');
+    a.focus();
+  } catch (e) {
+    state.purchaseMessage = '백업 실패: ' + e.message;
+    render();
+  }
+}
+
+function validateBackup(data) {
+  if (
+    !data ||
+    data.type !== 'lotto-purchases' ||
+    data.version !== 1 ||
+    !Array.isArray(data.records) ||
+    data.records.some(r => !validPurchase(r)) ||
+    new Set(data.records.map(r => r.id)).size !== data.records.length
+  ) {
+    throw Error('올바른 구매 기록 백업 파일이 아닙니다.');
+  }
+
+  return data.records;
+}
+
+async function restorePurchases(file) {
+  if (!file) return;
+
+  try {
+    if (file.size > 20 * 1024 * 1024) {
+      throw Error('20MB 이하의 백업 파일을 선택하세요.');
+    }
+
+    const records = validateBackup(JSON.parse(await file.text()));
+
+    await writePurchases(records);
+    state.purchases = await readPurchases();
+    loadPurchaseDraft();
+
+    state.gateRound = null;
+    state.games = [];
+    state.revealed = 0;
+    state.saved = false;
+    state.purchaseMessage =
+      '기존 기록을 보존하며 백업을 병합했습니다. 이번 회차를 확인하고 분석하세요.';
+  } catch (e) {
+    state.purchaseMessage = '복원 실패: ' + e.message;
+  }
+
+  render();
+}
+
+function loadPurchaseDraft() {
+  const r = latestPurchases(state.purchases)
+    .find(r => r.drawNo === state.draws[0].drawNo);
+
+  state.purchaseDraft = r
+    ? r.games.map(n => n.join(' ')).join('\n')
+    : '';
+
+  state.noPurchase = !!r?.noPurchase;
+}
+
+function bindPurchases() {
+  document.getElementById('purchase-input').oninput = e => {
+    state.purchaseDraft = e.target.value;
+    invalidatePurchase('purchase-input', e.target.selectionStart);
+  };
+
+  document.getElementById('no-purchase').onchange = e => {
+    state.noPurchase = e.target.checked;
+    invalidatePurchase('no-purchase');
+  };
+
+  document.getElementById('analyze-purchase').onclick = analyzePurchase;
+  document.getElementById('backup-purchases').onclick = backupPurchases;
+
+  document.getElementById('restore-purchases').onclick = () => {
+    document.getElementById('purchase-file').click();
+  };
+
+  document.getElementById('purchase-file').onchange = e => {
+    restorePurchases(e.target.files[0]);
+  };
+}
+
+const ball = (n, fresh = false) => `
+  <span class="ball ${n ? 'c' + Math.floor((n - 1) / 10) : ''} ${fresh ? 'new' : ''}">
+    ${n || '?'}
+  </span>
+`;
+
+function render() {
+  const latest = state.draws[0];
+  const a = analyze(state.draws);
+
+  document.getElementById('app').innerHTML = `
+    ${renderPurchases()}
+
+    ${state.warning
+      ? `<p class="notice" role="alert">${esc(state.warning)}</p>`
+      : ''}
+
+    <div class="layout">
+      <section>
+        <div class="card machine">
+          <h2>${latest.drawNo + 1}회 추천 추첨</h2>
+          <p class="muted">
+            실구매 분석 후 추천번호를 생성하면 번호를 하나씩 공개할 수 있습니다.
+          </p>
+
+          <p id="status" aria-live="polite">
+            ${state.revealed} / 30개 공개
+            ${state.revealed ? `
+              · 방금 공개:
+              ${state.games[Math.floor((state.revealed - 1) / 6)]
+                .numbers[(state.revealed - 1) % 6]}번
+            ` : ''}
+          </p>
+
+          <progress
+            max="30"
+            value="${state.revealed}"
+            aria-label="번호 공개 진행"
+          ></progress>
+
+          <div class="toolbar">
+            <button
+              class="primary"
+              id="next"
+              ${!state.games.length ||
+                state.gateRound !== latest.drawNo ||
+                state.revealed === 30 ? 'disabled' : ''}
+            >${state.revealed ? '번호 하나 뽑기' : '추첨 시작'}</button>
+
+            <button
+              id="reset"
+              ${state.gateRound !== latest.drawNo ? 'disabled' : ''}
+            >${state.games.length ? '새 추천 생성' : '추천번호 생성'}</button>
+          </div>
+        </div>
+
+        <div class="card">
+          ${!state.games.length ? `
+            <p class="muted">
+              실구매 기록을 저장·분석한 뒤 추천번호 생성 버튼을 눌러주세요.
+            </p>
+          ` : ''}
+
+          ${state.games.map((g, i) => `
+            <div class="game">
+              <div class="gamehead">
+                <strong>${g.label}</strong>
+                <small>${PLANS[i][1]}</small>
+              </div>
+
+              <div class="balls">
+                ${g.numbers.map((n, j) => ball(
+                  i * 6 + j < state.revealed ? n : null,
+                  i * 6 + j === state.revealed - 1
+                )).join('')}
+              </div>
+            </div>
+          `).join('')}
+
+          <div class="toolbar">
+            <button
+              id="save"
+              ${state.revealed !== 30 ||
+                state.saved ||
+                state.storageBlocked ? 'disabled' : ''}
+            >${state.saved ? '저장 완료' : '이 5게임 저장하기'}</button>
+          </div>
+
+          <p class="muted">
+            <small>
+              30개 번호를 모두 공개한 뒤 저장하세요.
+              저장한 조합은 이 브라우저에 남고,
+              대상 회차가 발표되면 자동 비교됩니다.
+            </small>
+          </p>
+        </div>
+      </section>
+
+      <aside>
+        <div class="card">
+          <p class="eyebrow">LATEST DRAW</p>
+          <h2>제${latest.drawNo}회 당첨번호</h2>
+          <p class="muted">${esc(latest.date.slice(0, 10))}</p>
+
+          <div class="balls">
+            ${latest.numbers.map(n => ball(n)).join('')}
+          </div>
+
+          <p>보너스 <strong>${latest.bonus}</strong></p>
+          <small>업데이트 ${esc(state.updatedAt || '확인 불가')}</small>
+        </div>
+
+        <div class="card">
+          <h2>전회차 번호별 출현</h2>
+          <p class="muted">
+            1–${latest.drawNo}회 · 총 ${state.draws.length.toLocaleString()}회<br>
+            보너스 번호 제외
+          </p>
+
+          <div class="freq">
+            ${a.all.slice(1).map((count, i) => `
+              <div>
+                <strong>${i + 1}</strong>
+                <small>${count}회</small>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <section class="card">
+      <h2>저장한 추천 · 가상 결과</h2>
+      <p class="muted">
+        아래는 추천 조합의 가상 결과이며 실제 구매 성과에 포함되지 않습니다.
+      </p>
+
+      ${state.records.length ? state.records.map(r => {
+        const rows = result(r, state.draws);
+
+        return `
+          <div class="history">
+            <strong>제${r.targetDrawNo}회 대상</strong>
+            <small>저장 ${esc(r.savedAt.slice(0, 10))}</small>
+
+            ${rows ? rows.map(g => `
+              <p>
+                ${g.label} · ${g.numbers.join(', ')}<br>
+                <small>
+                  본번호 ${g.hits.length}개 일치
+                  ${g.bonus ? ' · 보너스 일치' : ''}
+                  · <strong>${g.rank ? g.rank + '등' : '미당첨'}</strong>
+                </small>
+              </p>
+            `).join('') : '<p>당첨번호 발표 대기 중</p>'}
+          </div>
+        `;
+      }).join('') : '<p>아직 저장한 추천이 없습니다.</p>'}
+    </section>
+  `;
+
+  bindPurchases();
+
+  document.getElementById('next').onclick = () => {
+    if (state.gateRound !== latest.drawNo || !state.games.length) return;
+
+    state.revealed = Math.min(30, state.revealed + 1);
+    render();
+
+    document.getElementById(
+      state.revealed === 30 ? 'save' : 'next'
+    ).focus();
+  };
+
+  document.getElementById('reset').onclick = () => {
+    if (state.gateRound !== latest.drawNo) return;
+
+    state.games = generate(state.draws);
+    state.revealed = 0;
+    state.saved = false;
+    render();
+  };
+
+  document.getElementById('save').onclick = save;
+}
+
+async function init() {
+  try {
+    const res = await fetch('./lotto-history.json', { cache: 'no-store' });
+
+    if (!res.ok) {
+      throw Error('당첨번호 파일을 불러오지 못했습니다.');
+    }
+
+    const data = await res.json();
+
+    state.draws = validateDraws(data.draws);
+    state.updatedAt = data.updatedAt;
+    state.records = loadRecords();
+    state.games = [];
+    state.gateRound = null;
+
+    try {
+      state.purchases = await readPurchases();
+      state.purchaseReady = true;
+      loadPurchaseDraft();
+    } catch (e) {
+      state.purchaseReady = false;
+      state.purchaseMessage =
+        '구매 기록 DB를 열 수 없습니다. 브라우저 저장 허용 여부를 확인하고 새로고침하세요.';
+    }
+
+    if (Date.now() - Date.parse(state.draws[0].date) > 8 * 86400000) {
+      state.warning += (state.warning ? ' ' : '') +
+        '당첨번호 데이터가 오래되었습니다. 업데이트 상태를 확인하세요.';
+    }
+
+    render();
+  } catch (e) {
+    document.getElementById('app').innerHTML = `
+      <div class="card">
+        <h2>데이터를 불러오지 못했습니다</h2>
+        <p>${esc(e.message)}</p>
+        <p>
+          GitHub Actions에서 Update Lotto History를 실행한 후 다시 시도하세요.
+        </p>
+        <button id="retry">다시 시도</button>
+      </div>
+    `;
+
+    document.getElementById('retry').onclick = init;
+  }
+}
+
+if (typeof module !== 'undefined') {
+  module.exports = {
+    validateDraws,
+    analyze,
+    generate,
+    normalizeRecord,
+    result,
+    spreadScore,
+    parsePurchase,
+    validPurchase,
+    purchaseResults,
+    latestPurchases,
+    validateBackup
+  };
+} else {
+  init();
+}
+</script>
+</body>
+</html>
